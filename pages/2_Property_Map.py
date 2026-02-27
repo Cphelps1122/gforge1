@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Correct guard: check the persistent key
+# ⭐ Correct guard: check the persistent key
 if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
@@ -10,13 +10,21 @@ import pydeck as pdk
 from utils.load_data import load_property_ledger
 from utils.geo import add_coordinates
 
+# Load data
 df, _ = load_property_ledger()
 uploaded_file = st.session_state["uploaded_file_obj"]
 
+# If df failed to load
+if df is None or df.empty:
+    st.error("Could not load data from uploaded file.")
+    st.stop()
+
+# Add coordinates
 df = add_coordinates(df, uploaded_file)
 
 st.title("🗺️ Property Map with Occupancy Overlays")
 
+# Aggregate property-level data
 props = df.groupby("Property Name").agg({
     "Latitude": "first",
     "Longitude": "first",
@@ -28,8 +36,14 @@ props = df.groupby("Property Name").agg({
     "Usage": "sum"
 }).reset_index()
 
+# Remove rows with missing coordinates
 props = props.dropna(subset=["Latitude", "Longitude"])
 
+if props.empty:
+    st.warning("No properties have valid coordinates.")
+    st.stop()
+
+# Compute occupancy ratio
 props["Occ_Ratio"] = props["Occupied Rooms"] / props["# Units"]
 props["Radius"] = (props["Occ_Ratio"].fillna(0) * 3000) + 500
 
@@ -43,6 +57,7 @@ def occ_to_color(r):
 
 props["Color"] = props["Occ_Ratio"].apply(occ_to_color)
 
+# Build map layer
 layer = pdk.Layer(
     "ScatterplotLayer",
     props,
@@ -64,6 +79,4 @@ deck = pdk.Deck(
     tooltip={"text": "{Property Name}\n{City}, {State}\nOcc Ratio: {Occ_Ratio}"}
 )
 
-
 st.pydeck_chart(deck)
-
