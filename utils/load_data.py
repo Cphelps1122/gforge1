@@ -6,28 +6,20 @@ def load_property_ledger():
     if uploaded_file is None:
         return None, None
 
-    # ⭐ NEW: inspect sheet names
     xls = pd.ExcelFile(uploaded_file)
-    st.write("SHEETS:", xls.sheet_names)
 
-    # STOP HERE FOR NOW — do NOT load a sheet yet
-    return None, None
+    # Prefer Sheet1 if it exists
+    if "Sheet1" in xls.sheet_names:
+        df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
+    else:
+        # Fallback to Property
+        df = pd.read_excel(uploaded_file, sheet_name="Property")
 
-    df = pd.read_excel(uploaded_file)
-
-    # ⭐ Clean column names (this is the real fix)
-    df.columns = df.columns.str.strip()
-    df.columns = df.columns.str.replace("\u00A0", " ", regex=False)
+    # Clean column names
+    df.columns = df.columns.str.strip().str.replace("\u00A0", " ", regex=False)
     df.columns = df.columns.str.replace(r"\s+", " ", regex=True)
 
-    # Debug: print cleaned columns
-    # st.write("COLUMNS:", df.columns.tolist())
-
     # Now Billing Date will exist
-    if "Billing Date" not in df.columns:
-        st.error(f"Billing Date column not found. Columns are: {df.columns.tolist()}")
-        return None, None
-
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
     df["Year"] = df["Billing Date"].dt.year
     df["Month"] = df["Billing Date"].dt.strftime("%b")
@@ -68,5 +60,6 @@ def load_property_ledger():
 
 
     return df, month_order
+
 
 
