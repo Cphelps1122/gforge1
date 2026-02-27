@@ -1,7 +1,7 @@
 import streamlit as st
 
-# Require uploaded file BEFORE anything else
-if "uploaded_file" not in st.session_state or st.session_state["uploaded_file"] is None:
+# Correct guard: check the persistent key
+if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
     st.stop()
@@ -75,4 +75,5 @@ st.dataframe(
         ]
     ].sort_values("Billing Date"),
     use_container_width=True,
+
 )
