@@ -6,20 +6,31 @@ def load_property_ledger():
     if uploaded_file is None:
         return None, None
 
+    # Load the sheet
     xls = pd.ExcelFile(uploaded_file)
 
-    # Prefer Sheet1 if it exists
-    if "Sheet1" in xls.sheet_names:
-        df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
-    else:
-        # Fallback to Property
-        df = pd.read_excel(uploaded_file, sheet_name="Property")
+    # Always load Sheet1 — that's where your ledger lives
+    raw = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=None)
+
+    # Find the row where the real header begins
+    header_row = None
+    for i, row in raw.iterrows():
+        if str(row[0]).strip() == "Property Name":
+            header_row = i
+            break
+
+    if header_row is None:
+        st.error("Could not find the ledger header row.")
+        return None, None
+
+    # Now load the real table using that row as header
+    df = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=header_row)
 
     # Clean column names
     df.columns = df.columns.str.strip().str.replace("\u00A0", " ", regex=False)
     df.columns = df.columns.str.replace(r"\s+", " ", regex=True)
 
-    # Now Billing Date will exist
+    # Parse dates
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
     df["Year"] = df["Billing Date"].dt.year
     df["Month"] = df["Billing Date"].dt.strftime("%b")
@@ -60,6 +71,7 @@ def load_property_ledger():
 
 
     return df, month_order
+
 
 
 
