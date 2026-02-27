@@ -28,6 +28,18 @@ if "uploaded_file_obj" not in st.session_state:
     st.stop()
 
 # -----------------------------
+# LOAD DATA
+# -----------------------------
+df, month_order = load_property_ledger()
+if df is None:
+    st.error("Could not load data from uploaded file.")
+    st.stop()
+
+# ⭐ MUST come before the header
+last_updated = df["Billing Date"].max()
+metrics = portfolio_metrics(df)
+
+# -----------------------------
 # HEADER
 # -----------------------------
 st.markdown(
@@ -122,3 +134,4 @@ st.altair_chart(chart_weather, use_container_width=True)
 st.subheader("Spend by Property")
 
 st.altair_chart(spend_by_property_chart(df), use_container_width=True)
+
