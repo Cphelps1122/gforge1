@@ -1,6 +1,6 @@
 import streamlit as st
 
-# ⭐ Correct guard: check the persistent key
+# Require uploaded file using the persistent key
 if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
@@ -9,9 +9,7 @@ if "uploaded_file_obj" not in st.session_state:
 import altair as alt
 from utils.load_data import load_property_ledger
 
-# -----------------------------
-# LOAD DATA
-# -----------------------------
+# Load data
 df, month_order = load_property_ledger()
 
 if df is None or df.empty:
@@ -20,24 +18,17 @@ if df is None or df.empty:
 
 st.title("🏨 Property Detail")
 
-# -----------------------------
-# PROPERTY SELECTOR
-# -----------------------------
+# Property selector
 prop = st.selectbox("Select Property", sorted(df["Property Name"].unique()))
 
 # Filter to selected property
 f = df[df["Property Name"] == prop].copy()
 
-# ⭐ Prevent empty-data crash
-if f.empty:
-    st.warning("No data available for this property.")
-    st.stop()
-
-# ⭐ Drop rows missing Year or Month (fixes your ValueError)
+# Drop rows missing Year or Month (bad Billing Date)
 f = f.dropna(subset=["Year", "Month"])
 
 if f.empty:
-    st.warning("This property has no valid billing dates.")
+    st.warning("This property has no valid billing data.")
     st.stop()
 
 # -----------------------------
@@ -56,7 +47,6 @@ col4.metric("Avg Usage/Avail Room", f"{f['Usage_per_Available_Room'].mean():.2f}
 # -----------------------------
 st.subheader("Monthly Spend & Usage")
 
-# Group safely
 m = (
     f.groupby(["Year", "Month"], as_index=False)
      .agg({"$ Amount": "sum", "Usage": "sum"})
