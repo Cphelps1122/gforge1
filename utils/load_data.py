@@ -6,6 +6,13 @@ def load_property_ledger():
     if uploaded_file is None:
         return None, None
 
+    # ⭐ NEW: inspect sheet names
+    xls = pd.ExcelFile(uploaded_file)
+    st.write("SHEETS:", xls.sheet_names)
+
+    # STOP HERE FOR NOW — do NOT load a sheet yet
+    return None, None
+
     df = pd.read_excel(uploaded_file)
 
     # ⭐ Clean column names (this is the real fix)
@@ -61,4 +68,5 @@ def load_property_ledger():
 
 
     return df, month_order
+
 
