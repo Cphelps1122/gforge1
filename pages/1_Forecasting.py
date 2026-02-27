@@ -1,7 +1,7 @@
 import streamlit as st
 
-# Require uploaded file BEFORE anything else
-if "uploaded_file" not in st.session_state or st.session_state["uploaded_file"] is None:
+# Correct guard: check the persistent key
+if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
     st.stop()
@@ -43,5 +43,6 @@ else:
     base = alt.Chart(forecast).encode(x="ds:T")
     line = base.mark_line(color="#1F618D").encode(y="yhat:Q")
     band = base.mark_area(opacity=0.2).encode(y="yhat_lower:Q", y2="yhat_upper:Q")
+
 
     st.altair_chart((band + line), use_container_width=True)
