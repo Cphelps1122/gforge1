@@ -6,16 +6,13 @@ def load_property_ledger():
     if uploaded_file is None:
         return None, None
 
-    # Load the sheet
-    xls = pd.ExcelFile(uploaded_file)
-
-    # Always load Sheet1 — that's where your ledger lives
+    # Load Sheet1 raw with no header
     raw = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=None)
 
-    # Find the row where the real header begins
+    # ⭐ Find the row where "Property Name" appears ANYWHERE in the row
     header_row = None
     for i, row in raw.iterrows():
-        if str(row[0]).strip() == "Property Name":
+        if row.astype(str).str.strip().eq("Property Name").any():
             header_row = i
             break
 
@@ -23,7 +20,7 @@ def load_property_ledger():
         st.error("Could not find the ledger header row.")
         return None, None
 
-    # Now load the real table using that row as header
+    # ⭐ Now load the real table using that row as header
     df = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=header_row)
 
     # Clean column names
@@ -71,6 +68,7 @@ def load_property_ledger():
 
 
     return df, month_order
+
 
 
 
