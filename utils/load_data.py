@@ -2,23 +2,29 @@ import streamlit as st
 import pandas as pd
 
 def load_property_ledger():
-    # ⭐ ALWAYS pull from session_state, never from the uploader
     uploaded_file = st.session_state.get("uploaded_file_obj", None)
-
     if uploaded_file is None:
         return None, None
 
-    # ⭐ Load Excel file
     df = pd.read_excel(uploaded_file)
 
-    # ⭐ Ensure Billing Date is parsed
+    # ⭐ Clean column names (this is the real fix)
+    df.columns = df.columns.str.strip()
+    df.columns = df.columns.str.replace("\u00A0", " ", regex=False)
+    df.columns = df.columns.str.replace(r"\s+", " ", regex=True)
+
+    # Debug: print cleaned columns
+    # st.write("COLUMNS:", df.columns.tolist())
+
+    # Now Billing Date will exist
+    if "Billing Date" not in df.columns:
+        st.error(f"Billing Date column not found. Columns are: {df.columns.tolist()}")
+        return None, None
+
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
-
-    # ⭐ Extract Year and Month
     df["Year"] = df["Billing Date"].dt.year
-    df["Month"] = df["Billing Date"].dt.strftime("%b")  # Jan, Feb, Mar...
+    df["Month"] = df["Billing Date"].dt.strftime("%b")
 
-    # ⭐ Month order for charts
     month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
     return df, month_order
@@ -55,3 +61,4 @@ def load_property_ledger():
 
 
     return df, month_order
+
