@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Correct guard: check the persistent key
+# ⭐ Correct guard: check the persistent key
 if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
@@ -9,16 +9,29 @@ if "uploaded_file_obj" not in st.session_state:
 import altair as alt
 from utils.load_data import load_property_ledger
 
+# Load data
 df, month_order = load_property_ledger()
+
+if df is None or df.empty:
+    st.error("Could not load data from uploaded file.")
+    st.stop()
 
 st.title("🏨 Property Detail")
 
+# Property selector
 prop = st.selectbox("Select Property", sorted(df["Property Name"].unique()))
+
+# Filter to selected property
 f = df[df["Property Name"] == prop].copy()
+
+# ⭐ Prevent empty-data crash
 if f.empty:
     st.warning("No data available for this property.")
     st.stop()
 
+# -----------------------------
+# METRICS
+# -----------------------------
 st.subheader(f"{prop} – Occupancy & Efficiency Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -27,6 +40,9 @@ col2.metric("Avg CPAR", f"${f['Cost_per_Available_Room'].mean():.2f}")
 col3.metric("Avg Usage/Occ Room", f"{f['Usage_per_Occupied_Room'].mean():.2f}")
 col4.metric("Avg Usage/Avail Room", f"{f['Usage_per_Available_Room'].mean():.2f}")
 
+# -----------------------------
+# MONTHLY CHARTS
+# -----------------------------
 st.subheader("Monthly Spend & Usage")
 
 m = f.groupby(["Year", "Month"], as_index=False).agg({
@@ -61,6 +77,9 @@ usage_chart = (
 left.altair_chart(cost_chart, use_container_width=True)
 right.altair_chart(usage_chart, use_container_width=True)
 
+# -----------------------------
+# RAW DATA TABLE
+# -----------------------------
 st.subheader("Raw Bills")
 st.dataframe(
     f[
@@ -78,6 +97,4 @@ st.dataframe(
         ]
     ].sort_values("Billing Date"),
     use_container_width=True,
-
 )
-
