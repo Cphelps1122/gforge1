@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Require uploaded file using the persistent key
-if "uploaded_file_obj" not in st.session_state:
+if "uploaded_file_obj" not in st.session_state or st.session_state["uploaded_file_obj"] is None:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
     st.stop()
@@ -81,3 +81,4 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
+
