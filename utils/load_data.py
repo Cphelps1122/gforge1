@@ -1,13 +1,27 @@
-import pandas as pd
 import streamlit as st
-from utils.weather import add_weather_normalization
+import pandas as pd
 
 def load_property_ledger():
-    # ⭐ Use the persistent key, not the widget key
+    # ⭐ ALWAYS pull from session_state, never from the uploader
     uploaded_file = st.session_state.get("uploaded_file_obj", None)
 
     if uploaded_file is None:
         return None, None
+
+    # ⭐ Load Excel file
+    df = pd.read_excel(uploaded_file)
+
+    # ⭐ Ensure Billing Date is parsed
+    df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
+
+    # ⭐ Extract Year and Month
+    df["Year"] = df["Billing Date"].dt.year
+    df["Month"] = df["Billing Date"].dt.strftime("%b")  # Jan, Feb, Mar...
+
+    # ⭐ Month order for charts
+    month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    return df, month_order
 
     # -----------------------------
     # LOAD PROPERTY SHEET
@@ -38,5 +52,6 @@ def load_property_ledger():
     # WEATHER NORMALIZATION
     # -----------------------------
     df = add_weather_normalization(df, station_id="GHCND:USW00093721")
+
 
     return df, month_order
