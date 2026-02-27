@@ -17,26 +17,15 @@ uploaded = st.sidebar.file_uploader(
     key="uploaded_file"
 )
 
-# ⭐ Persist file across pages using a separate key
+# ⭐ Persist file across pages
 if uploaded is not None:
     st.session_state["uploaded_file_obj"] = uploaded
 
-# ⭐ Require file before continuing
+# ⭐ CRITICAL FIX: ensure the file stays available even when uploaded is None
 if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file to begin.")
     st.stop()
-
-# -----------------------------
-# LOAD DATA
-# -----------------------------
-df, month_order = load_property_ledger()
-if df is None:
-    st.error("Could not load data from uploaded file.")
-    st.stop()
-
-last_updated = df["Billing Date"].max()
-metrics = portfolio_metrics(df)
 
 # -----------------------------
 # HEADER
@@ -131,4 +120,5 @@ st.altair_chart(chart_weather, use_container_width=True)
 # SPEND BY PROPERTY
 # -----------------------------
 st.subheader("Spend by Property")
+
 st.altair_chart(spend_by_property_chart(df), use_container_width=True)
