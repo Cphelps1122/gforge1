@@ -31,6 +31,9 @@ if f.empty:
     st.warning("This property has no valid billing data.")
     st.stop()
 
+# ⭐ CRITICAL FIX: remove categorical to prevent pandas crash
+f["Month"] = f["Month"].astype(str)
+
 # -----------------------------
 # METRICS
 # -----------------------------
