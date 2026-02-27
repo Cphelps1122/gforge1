@@ -15,6 +15,9 @@ st.title("🏨 Property Detail")
 
 prop = st.selectbox("Select Property", sorted(df["Property Name"].unique()))
 f = df[df["Property Name"] == prop].copy()
+if f.empty:
+    st.warning("No data available for this property.")
+    st.stop()
 
 st.subheader(f"{prop} – Occupancy & Efficiency Metrics")
 
@@ -77,3 +80,4 @@ st.dataframe(
     use_container_width=True,
 
 )
+
