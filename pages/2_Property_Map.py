@@ -11,7 +11,7 @@ from utils.load_data import load_property_ledger
 from utils.geo import add_coordinates
 
 df, _ = load_property_ledger()
-uploaded_file = st.session_state["uploaded_file"]
+uploaded_file = st.session_state["uploaded_file_obj"]
 
 df = add_coordinates(df, uploaded_file)
 
@@ -66,3 +66,4 @@ deck = pdk.Deck(
 
 
 st.pydeck_chart(deck)
+
