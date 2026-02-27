@@ -6,6 +6,13 @@ def load_property_ledger():
     if uploaded_file is None:
         return None, None
 
+    raw = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=None)
+
+    # ⭐ Show the first 40 rows with all columns
+    st.write(raw.head(40))
+
+    return None, None
+
     # Load Sheet1 raw with no header
     raw = pd.read_excel(uploaded_file, sheet_name="Sheet1", header=None)
 
@@ -68,6 +75,7 @@ def load_property_ledger():
 
 
     return df, month_order
+
 
 
 
