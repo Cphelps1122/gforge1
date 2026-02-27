@@ -1,6 +1,6 @@
 import streamlit as st
 
-# ⭐ Correct guard: check the persistent key
+# Require uploaded file using the persistent key
 if "uploaded_file_obj" not in st.session_state:
     st.title("📄 Upload Your Utility Ledger")
     st.write("Please upload your McNeill Excel file in the sidebar.")
@@ -12,12 +12,13 @@ from utils.geo import add_coordinates
 
 # Load data
 df, _ = load_property_ledger()
-uploaded_file = st.session_state["uploaded_file_obj"]
 
-# If df failed to load
 if df is None or df.empty:
     st.error("Could not load data from uploaded file.")
     st.stop()
+
+# Get the original uploaded file for provider sheet
+uploaded_file = st.session_state["uploaded_file_obj"]
 
 # Add coordinates
 df = add_coordinates(df, uploaded_file)
@@ -40,7 +41,7 @@ props = df.groupby("Property Name").agg({
 props = props.dropna(subset=["Latitude", "Longitude"])
 
 if props.empty:
-    st.warning("No properties have valid coordinates.")
+    st.warning("No properties have valid coordinates to display on the map.")
     st.stop()
 
 # Compute occupancy ratio
@@ -68,8 +69,8 @@ layer = pdk.Layer(
 )
 
 view_state = pdk.ViewState(
-    latitude=props["Latitude"].mean(),
-    longitude=props["Longitude"].mean(),
+    latitude=float(props["Latitude"].mean()),
+    longitude=float(props["Longitude"].mean()),
     zoom=9,
 )
 
