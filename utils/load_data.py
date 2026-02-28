@@ -14,7 +14,8 @@ def load_property_ledger():
     # Pick the newest file
     newest_file = max(excel_files, key=lambda f: f.stat().st_mtime)
 
-    df = pd.read_excel(newest_file)
+    # Load ONLY the Raw Data sheet
+    df = pd.read_excel(newest_file, sheet_name="Raw Data")
 
     # Ensure Month column is datetime
     if "Month" in df.columns:
