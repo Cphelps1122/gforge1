@@ -1,10 +1,6 @@
 import streamlit as st
 
-# Correct guard: check the persistent key
-if "uploaded_file_obj" not in st.session_state:
-    st.title("📄 Upload Your Utility Ledger")
-    st.write("Please upload your McNeill Excel file in the sidebar.")
-    st.stop()
+df, month_order = load_property_ledger()
 
 import altair as alt
 from prophet import Prophet
@@ -46,3 +42,4 @@ else:
 
 
     st.altair_chart((band + line), use_container_width=True)
+
