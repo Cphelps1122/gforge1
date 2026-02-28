@@ -35,6 +35,24 @@ def load_property_ledger():
     # --- Parse dates ---
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
+    # --- WEATHER NORMALIZATION ---
+# You can tune these base temperatures later
+BASE_HEAT = 65
+BASE_COOL = 65
+
+# Example: if you later add NOAA data, replace these with actual HDD/CDD values
+# For now, compute simple HDD/CDD from temperature columns if present
+if "Avg Temp" in df.columns:
+    df["HDD"] = (BASE_HEAT - df["Avg Temp"]).clip(lower=0)
+    df["CDD"] = (df["Avg Temp"] - BASE_COOL).clip(lower=0)
+else:
+    df["HDD"] = pd.NA
+    df["CDD"] = pd.NA
+
+# Normalized usage
+df["Usage_per_HDD"] = df["Usage"] / df["HDD"].replace(0, pd.NA)
+df["Usage_per_CDD"] = df["Usage"] / df["CDD"].replace(0, pd.NA)
+
     # --- Add Year + Month ---
     df["Year"] = df["Billing Date"].dt.year
     df["Month"] = df["Billing Date"].dt.strftime("%b")
@@ -46,4 +64,5 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
 
