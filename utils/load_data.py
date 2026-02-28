@@ -3,9 +3,8 @@ import pandas as pd
 from utils.noaa import get_noaa_daily
 
 def load_property_ledger():
-    uploaded_file = "data/latest.xlsx"
+    uploaded_file = "data/mcneill_database.xlsx"
     df = pd.read_excel(uploaded_file, sheet_name="Raw Data")
-    ...
 
     # -----------------------------
     # LOAD RAW DATA
@@ -117,4 +116,5 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
 
