@@ -1,3 +1,5 @@
+import pandas as pd
+
 def portfolio_metrics(df):
     return {
         "properties": df["Property Name"].nunique(),
@@ -39,4 +41,5 @@ def property_benchmarks(df):
     summary["Usage_Intensity_vs_Portfolio"] = summary["Usage_Intensity"] - portfolio["Usage_Intensity"]
 
     return summary  
+
 
