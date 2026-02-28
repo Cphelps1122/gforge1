@@ -8,41 +8,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# -----------------------------
-# Sidebar Upload
-# -----------------------------
-st.sidebar.title("Upload Data File")
-
-# Persist uploaded file across pages
-uploaded_file = st.sidebar.file_uploader(
-    "Upload your Excel file",
-    type=["xlsx"],
-    key="uploaded_file_obj"
-)
-
-# If no file uploaded, stop the app
-if uploaded_file is None:
-    st.title("Utility Analytics Dashboard")
-    st.write("Please upload your Excel file using the sidebar.")
-    st.stop()
-
-# -----------------------------
-# Load Data
-# -----------------------------
-df, month_order = load_property_ledger(uploaded_file)
+# Load data automatically from newest file in /data
+df, month_order = load_property_ledger()
 
 if df is None or df.empty:
-    st.error("The uploaded file could not be processed. Please check the format.")
+    st.title("Utility Analytics Dashboard")
+    st.error("No Excel files found in /data. Please add a file and refresh.")
     st.stop()
 
-# -----------------------------
 # Main Title
-# -----------------------------
 st.title("Utility Analytics Dashboard")
 
-# -----------------------------
-# Portfolio KPIs
-# -----------------------------
+# KPIs
 col1, col2, col3 = st.columns(3)
 
 total_spend = df["$ Amount"].sum()
@@ -55,8 +32,5 @@ col3.metric("Average CPOR", money(avg_cpor))
 
 st.write("---")
 
-# -----------------------------
-# Overview Section
-# -----------------------------
 st.subheader("Portfolio Overview")
 st.write("Use the navigation pages on the left to explore property-level details, benchmarking, maps, and forecasting.")
