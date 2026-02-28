@@ -22,6 +22,9 @@ def load_property_ledger():
         .str.replace(r"\s+", " ", regex=True)
     )
 
+    # Compute Cost_per_Unit safely
+    df["Cost_per_Unit"] = df["$ Amount"] / df["Usage"].replace(0, pd.NA)
+
     # --- Required columns ---
     required = ["Property Name", "Billing Date", "Usage", "$ Amount"]
     missing = [c for c in required if c not in df.columns]
@@ -43,3 +46,4 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
