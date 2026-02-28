@@ -49,7 +49,13 @@ def load_property_ledger():
     # --- Derived columns used across the app ---
     df["Cost_per_Unit"] = df["$ Amount"] / df["Usage"].replace(0, pd.NA)
     df["Cost_per_Occupied_Room"] = df["$ Amount"] / df["Occupied Rooms"].replace(0, pd.NA)
+    df["Cost_per_Available_Room"] = df["$ Amount"] / df["# Units"].replace(0, pd.NA)
+
+    # Aliases used in Benchmarking + Detail pages
     df["CPOR"] = df["Cost_per_Occupied_Room"]
+    df["CPAR"] = df["Cost_per_Available_Room"]
+
+    # Utility intensity
     df["Usage_Intensity"] = df["Usage"] / df["# Units"].replace(0, pd.NA)
 
     # --- WEATHER NORMALIZATION ---
