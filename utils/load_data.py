@@ -51,6 +51,48 @@ def load_property_ledger():
     df["Cost_per_Occupied_Room"] = df["$ Amount"] / df["Occupied Rooms"].replace(0, pd.NA)
     df["Cost_per_Available_Room"] = df["$ Amount"] / df["# Units"].replace(0, pd.NA)
 
+    # -----------------------------
+    # NOAA WEATHER NORMALIZATION
+    # -----------------------------
+    from utils.noaa import get_noaa_daily
+
+    df["Avg Temp"] = pd.NA
+    df["HDD"] = pd.NA
+    df["CDD"] = pd.NA
+
+    BASE_HEAT = 65
+    BASE_COOL = 65
+
+    # NOAA loop: one property at a time
+    for prop, group in df.groupby("Property Name"):
+    zip_code = group["ZIP Code"].iloc[0]
+
+    for idx, row in group.iterrows():
+        # Billing period end date = Billing Date
+        end = row["Billing Date"]
+        start = end - pd.Timedelta(days=30)
+
+        # DEBUG: confirm NOAA is being called
+        st.write("NOAA called for ZIP:", zip_code, start, end)
+
+        wx = get_noaa_daily(
+            str(zip_code),
+            start.strftime("%Y-%m-%d"),
+            end.strftime("%Y-%m-%d")
+        )
+
+        if wx is None:
+            continue
+
+        avg_temp = wx["AvgTemp"].mean()
+        df.at[idx, "Avg Temp"] = avg_temp
+        df.at[idx, "HDD"] = max(BASE_HEAT - avg_temp, 0)
+        df.at[idx, "CDD"] = max(avg_temp - BASE_COOL, 0)
+
+    # Normalized usage
+    df["Usage_per_HDD"] = df["Usage"] / df["HDD"].replace(0, pd.NA)
+    df["Usage_per_CDD"] = df["Usage"] / df["CDD"].replace(0, pd.NA)
+    
     # Aliases for pages
     df["CPOR"] = df["Cost_per_Occupied_Room"]
     df["CPAR"] = df["Cost_per_Available_Room"]
@@ -90,4 +132,5 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
 
