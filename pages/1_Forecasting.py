@@ -1,6 +1,8 @@
 import streamlit as st
 
-df, month_order = load_property_ledger()
+if "uploaded_file_obj" not in st.session_state:
+    st.warning("Please upload a data file to continue.")
+    st.stop()
 
 import altair as alt
 from prophet import Prophet
