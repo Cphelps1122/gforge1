@@ -46,8 +46,11 @@ def load_property_ledger():
     df["Year"] = df["Billing Date"].dt.year
     df["Month"] = df["Billing Date"].dt.strftime("%b")
 
-    # --- Cost per unit ---
+    # --- Derived columns used across the app ---
     df["Cost_per_Unit"] = df["$ Amount"] / df["Usage"].replace(0, pd.NA)
+    df["Cost_per_Occupied_Room"] = df["$ Amount"] / df["Occupied Rooms"].replace(0, pd.NA)
+    df["CPOR"] = df["Cost_per_Occupied_Room"]
+    df["Usage_Intensity"] = df["Usage"] / df["# Units"].replace(0, pd.NA)
 
     # --- WEATHER NORMALIZATION ---
     BASE_HEAT = 65
