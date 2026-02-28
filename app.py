@@ -4,9 +4,6 @@ from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
 from utils.charts import cost_trend_chart, usage_trend_chart, spend_by_property_chart
 import streamlit as st
-st.write("NOAA token loaded:", "NOAA_TOKEN" in st.secrets)
-st.write("Token length:", len(st.secrets.get("NOAA_TOKEN", "")))
-st.write(df[["Avg Temp", "HDD", "CDD", "Usage_per_HDD", "Usage_per_CDD"]].head())
 
 st.set_page_config(page_title="gforge1 – Utility Dashboard", layout="wide")
 
@@ -137,6 +134,7 @@ st.altair_chart(chart_weather, use_container_width=True)
 st.subheader("Spend by Property")
 
 st.altair_chart(spend_by_property_chart(df), use_container_width=True)
+
 
 
 
