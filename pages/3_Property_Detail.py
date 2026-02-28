@@ -4,29 +4,20 @@ from utils.formatting import money
 
 st.title("Property Detail")
 
-# Ensure file is uploaded
-uploaded_file = st.session_state.get("uploaded_file_obj")
-if uploaded_file is None:
-    st.write("Please upload your Excel file using the sidebar.")
-    st.stop()
-
-df, month_order = load_property_ledger(uploaded_file)
+# Auto-load newest file
+df, month_order = load_property_ledger()
 
 if df is None or df.empty:
-    st.error("Unable to load data. Please check the uploaded file.")
+    st.error("No data available. Please add an Excel file to /data.")
     st.stop()
 
-# -----------------------------
-# Property Selector
-# -----------------------------
+# Property selector
 properties = sorted(df["Property Name"].unique())
 selected_property = st.selectbox("Select a Property", properties)
 
 df_prop = df[df["Property Name"] == selected_property]
 
-# -----------------------------
 # KPIs
-# -----------------------------
 col1, col2, col3 = st.columns(3)
 
 total_spend = df_prop["$ Amount"].sum()
@@ -39,9 +30,7 @@ col3.metric("Average CPOR", money(avg_cpor))
 
 st.write("---")
 
-# -----------------------------
-# Property Table
-# -----------------------------
+# Detail table
 st.subheader(f"{selected_property} — Detailed Records")
 
 df_display = df_prop.copy()
