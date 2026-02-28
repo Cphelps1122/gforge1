@@ -1,25 +1,17 @@
 import streamlit as st
-import pandas as pd
 from utils.load_data import load_property_ledger
 from utils.formatting import money
 
 st.title("Benchmarking")
 
-# Ensure file is uploaded
-uploaded_file = st.session_state.get("uploaded_file_obj")
-if uploaded_file is None:
-    st.write("Please upload your Excel file using the sidebar.")
-    st.stop()
-
-df, month_order = load_property_ledger(uploaded_file)
+# Auto-load newest file
+df, month_order = load_property_ledger()
 
 if df is None or df.empty:
-    st.error("Unable to load data. Please check the uploaded file.")
+    st.error("No data available. Please add an Excel file to /data.")
     st.stop()
 
-# -----------------------------
-# Benchmarking Controls
-# -----------------------------
+# Controls
 st.subheader("Benchmarking Controls")
 
 utility_types = sorted(df["Utility"].unique())
@@ -38,14 +30,11 @@ selected_metric = metric_options[selected_metric_label]
 
 df_filtered = df[df["Utility"] == selected_utility]
 
-# -----------------------------
-# Benchmark Table
-# -----------------------------
+# Benchmark table
 st.subheader(f"{selected_utility} — Benchmark Table ({selected_metric_label})")
 
 df_display = df_filtered.copy()
 
-# Format money columns
 money_cols = [
     "$ Amount", "Cost_per_Unit", "Cost_per_Occupied_Room",
     "Cost_per_Available_Room", "CPOR", "CPAR"
@@ -57,9 +46,7 @@ for col in money_cols:
 
 st.dataframe(df_display, use_container_width=True)
 
-# -----------------------------
-# Benchmark Summary
-# -----------------------------
+# Summary metric
 st.subheader("Benchmark Summary")
 
 benchmark_value = df_filtered[selected_metric].mean()
