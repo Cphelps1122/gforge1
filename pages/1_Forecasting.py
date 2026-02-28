@@ -6,16 +6,11 @@ from utils.formatting import money
 
 st.title("Forecasting")
 
-# Ensure file is uploaded
-uploaded_file = st.session_state.get("uploaded_file_obj")
-if uploaded_file is None:
-    st.write("Please upload your Excel file using the sidebar.")
-    st.stop()
-
-df, month_order = load_property_ledger(uploaded_file)
+# Auto-load newest file
+df, month_order = load_property_ledger()
 
 if df is None or df.empty:
-    st.error("Unable to load data. Please check the uploaded file.")
+    st.error("No data available. Please add an Excel file to /data.")
     st.stop()
 
 # -----------------------------
