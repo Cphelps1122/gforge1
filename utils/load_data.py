@@ -51,6 +51,17 @@ def load_property_ledger():
     df["Cost_per_Occupied_Room"] = df["$ Amount"] / df["Occupied Rooms"].replace(0, pd.NA)
     df["Cost_per_Available_Room"] = df["$ Amount"] / df["# Units"].replace(0, pd.NA)
 
+    # Aliases for pages
+    df["CPOR"] = df["Cost_per_Occupied_Room"]
+    df["CPAR"] = df["Cost_per_Available_Room"]
+
+    # Usage normalization
+    df["Usage_per_Occupied_Room"] = df["Usage"] / df["Occupied Rooms"].replace(0, pd.NA)
+    df["Usage_per_Available_Room"] = df["Usage"] / df["# Units"].replace(0, pd.NA)
+
+    # Utility intensity
+    df["Usage_Intensity"] = df["Usage"] / df["# Units"].replace(0, pd.NA)
+
     # Aliases used in Benchmarking + Detail pages
     df["CPOR"] = df["Cost_per_Occupied_Room"]
     df["CPAR"] = df["Cost_per_Available_Room"]
@@ -79,3 +90,4 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
