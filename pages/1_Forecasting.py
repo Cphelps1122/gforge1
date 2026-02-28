@@ -1,47 +1,68 @@
 import streamlit as st
-
-if "uploaded_file_obj" not in st.session_state:
-    st.warning("Please upload a data file to continue.")
-    st.stop()
-
-import altair as alt
+import pandas as pd
 from prophet import Prophet
 from utils.load_data import load_property_ledger
+from utils.formatting import money
 
-df, month_order = load_property_ledger()
+st.title("Forecasting")
 
-st.title("📈 Forecasting Center")
+# Ensure file is uploaded
+uploaded_file = st.session_state.get("uploaded_file_obj")
+if uploaded_file is None:
+    st.write("Please upload your Excel file using the sidebar.")
+    st.stop()
 
-col1, col2, col3 = st.columns(3)
-prop = col1.selectbox("Property", ["All"] + sorted(df["Property Name"].unique()))
-util = col2.selectbox("Utility", ["All"] + sorted(df["Utility"].unique()))
-target = col3.selectbox("Forecast Target", ["Spend ($ Amount)", "Usage", "Usage per HDD"])
+df, month_order = load_property_ledger(uploaded_file)
 
-f = df.copy()
-if prop != "All":
-    f = f[f["Property Name"] == prop]
-if util != "All":
-    f = f[f["Utility"] == util]
+if df is None or df.empty:
+    st.error("Unable to load data. Please check the uploaded file.")
+    st.stop()
 
-if target == "Spend ($ Amount)":
-    ts = f.groupby("Billing Date", as_index=False)["$ Amount"].sum().rename(columns={"Billing Date": "ds", "$ Amount": "y"})
-elif target == "Usage":
-    ts = f.groupby("Billing Date", as_index=False)["Usage"].sum().rename(columns={"Billing Date": "ds", "Usage": "y"})
-else:
-    ts = f.groupby("Billing Date", as_index=False)["Usage_per_HDD"].mean().rename(columns={"Billing Date": "ds", "Usage_per_HDD": "y"})
+# -----------------------------
+# Forecasting Controls
+# -----------------------------
+st.subheader("Forecasting Controls")
 
-if len(ts) < 5:
-    st.warning("Not enough data to forecast.")
-else:
-    model = Prophet()
-    model.fit(ts)
-    future = model.make_future_dataframe(periods=180)
-    forecast = model.predict(future)
+utility_types = sorted(df["Utility"].unique())
+selected_utility = st.selectbox("Select Utility Type", utility_types)
 
-    base = alt.Chart(forecast).encode(x="ds:T")
-    line = base.mark_line(color="#1F618D").encode(y="yhat:Q")
-    band = base.mark_area(opacity=0.2).encode(y="yhat_lower:Q", y2="yhat_upper:Q")
+df_util = df[df["Utility"] == selected_utility]
 
+# Aggregate monthly
+df_monthly = (
+    df_util.groupby("Month")["$ Amount"]
+    .sum()
+    .reset_index()
+    .sort_values("Month")
+)
 
-    st.altair_chart((band + line), use_container_width=True)
+df_monthly.rename(columns={"Month": "ds", "$ Amount": "y"}, inplace=True)
 
+# -----------------------------
+# Prophet Model
+# -----------------------------
+model = Prophet()
+model.fit(df_monthly)
+
+future = model.make_future_dataframe(periods=12, freq="M")
+forecast = model.predict(future)
+
+# -----------------------------
+# Display Forecast Chart
+# -----------------------------
+st.subheader(f"{selected_utility} — 12‑Month Cost Forecast")
+
+fig = model.plot(forecast)
+st.pyplot(fig)
+
+# -----------------------------
+# Forecast Table
+# -----------------------------
+st.subheader("Forecast Table")
+
+forecast_display = forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].copy()
+forecast_display["yhat"] = forecast_display["yhat"].apply(money)
+forecast_display["yhat_lower"] = forecast_display["yhat_lower"].apply(money)
+forecast_display["yhat_upper"] = forecast_display["yhat_upper"].apply(money)
+
+st.dataframe(forecast_display, use_container_width=True)
