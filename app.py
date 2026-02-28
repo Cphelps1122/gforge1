@@ -10,7 +10,6 @@ st.set_page_config(
 
 # Load data automatically from newest file in /data
 df, month_order = load_property_ledger()
-st.write("DEBUG COLUMNS:", list(df.columns))
 
 if df is None or df.empty:
     st.title("Utility Analytics Dashboard")
@@ -35,4 +34,5 @@ st.write("---")
 
 st.subheader("Portfolio Overview")
 st.write("Use the navigation pages on the left to explore property-level details, benchmarking, maps, and forecasting.")
+
 
