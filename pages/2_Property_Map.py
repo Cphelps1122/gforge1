@@ -1,45 +1,58 @@
 import streamlit as st
+import pydeck as pdk
 from utils.load_data import load_property_ledger
-from utils.map_utils import (
-    build_property_coordinates,
-    build_property_summary,
-    render_property_map
-)
+from utils.formatting import money
 
-st.title("🗺️ Property Map with Occupancy Heat Layer")
+st.title("Property Map")
 
-df, month_order = load_property_ledger()
-
-if df is None:
-    st.error("Could not load data from uploaded file.")
+# Ensure file is uploaded
+uploaded_file = st.session_state.get("uploaded_file_obj")
+if uploaded_file is None:
+    st.write("Please upload your Excel file using the sidebar.")
     st.stop()
 
-# Build coordinates + summary
-props = build_property_coordinates(df)
-summary = build_property_summary(df)
+df, month_order = load_property_ledger(uploaded_file)
 
-# --- Property Filters ---
-property_list = sorted(df["Property Name"].unique())
-selected_properties = st.multiselect(
-    "Select Properties",
-    property_list,
-    default=property_list
+if df is None or df.empty:
+    st.error("Unable to load data. Please check the uploaded file.")
+    st.stop()
+
+# -----------------------------
+# Validate map columns
+# -----------------------------
+required_cols = ["Latitude", "Longitude", "Property Name", "$ Amount"]
+
+for col in required_cols:
+    if col not in df.columns:
+        st.error(f"Missing required column for mapping: {col}")
+        st.stop()
+
+# -----------------------------
+# Map View
+# -----------------------------
+st.subheader("Portfolio Map View")
+
+df_map = df.copy()
+df_map["Formatted Cost"] = df_map["$ Amount"].apply(money)
+
+layer = pdk.Layer(
+    "ScatterplotLayer",
+    data=df_map,
+    get_position=["Longitude", "Latitude"],
+    get_radius=500,
+    get_color=[0, 90, 200],
+    pickable=True,
 )
 
-df_filtered = df[df["Property Name"].isin(selected_properties)]
-props_filtered = props[props["Property Name"].isin(selected_properties)]
-summary_filtered = summary[summary["Property Name"].isin(selected_properties)]
+view_state = pdk.ViewState(
+    latitude=df_map["Latitude"].mean(),
+    longitude=df_map["Longitude"].mean(),
+    zoom=8,
+)
 
-# --- Layout ---
-col1, col2 = st.columns([2, 1])
+tooltip = {
+    "html": "<b>{Property Name}</b><br/>Cost: {Formatted Cost}",
+    "style": {"backgroundColor": "white", "color": "black"}
+}
 
-with col1:
-    st.subheader("Occupancy Heat Map")
-    render_property_map(props_filtered)
-
-with col2:
-    st.subheader("Property Summary")
-    if summary_filtered.empty:
-        st.warning("No summary data available.")
-    else:
-        st.dataframe(summary_filtered)
+st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip))
