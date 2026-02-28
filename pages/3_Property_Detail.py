@@ -1,106 +1,58 @@
 import streamlit as st
+from utils.load_data import load_property_ledger
+from utils.formatting import money
 
-# Require uploaded file using the persistent key
-if "uploaded_file_obj" not in st.session_state:
-    st.title("📄 Upload Your Utility Ledger")
-    st.write("Please upload your McNeill Excel file in the sidebar.")
+st.title("Property Detail")
+
+# Ensure file is uploaded
+uploaded_file = st.session_state.get("uploaded_file_obj")
+if uploaded_file is None:
+    st.write("Please upload your Excel file using the sidebar.")
     st.stop()
 
-import altair as alt
-from utils.load_data import load_property_ledger
-
-# Load data
-df, month_order = load_property_ledger()
+df, month_order = load_property_ledger(uploaded_file)
 
 if df is None or df.empty:
-    st.error("Could not load data from uploaded file.")
+    st.error("Unable to load data. Please check the uploaded file.")
     st.stop()
 
-st.title("🏨 Property Detail")
+# -----------------------------
+# Property Selector
+# -----------------------------
+properties = sorted(df["Property Name"].unique())
+selected_property = st.selectbox("Select a Property", properties)
 
-# Property selector
-prop = st.selectbox("Select Property", sorted(df["Property Name"].unique()))
-
-# Filter to selected property
-f = df[df["Property Name"] == prop].copy()
-
-# Drop rows missing Year or Month (bad Billing Date)
-f = f.dropna(subset=["Year", "Month"])
-
-if f.empty:
-    st.warning("This property has no valid billing data.")
-    st.stop()
-
-# ⭐ CRITICAL FIX: remove categorical to prevent pandas crash
-f["Month"] = f["Month"].astype(str)
+df_prop = df[df["Property Name"] == selected_property]
 
 # -----------------------------
-# METRICS
+# KPIs
 # -----------------------------
-st.subheader(f"{prop} – Occupancy & Efficiency Metrics")
+col1, col2, col3 = st.columns(3)
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Avg CPOR", f"${f['Cost_per_Occupied_Room'].mean():.2f}")
-col2.metric("Avg CPAR", f"${f['Cost_per_Available_Room'].mean():.2f}")
-col3.metric("Avg Usage/Occ Room", f"{f['Usage_per_Occupied_Room'].mean():.2f}")
-col4.metric("Avg Usage/Avail Room", f"{f['Usage_per_Available_Room'].mean():.2f}")
+total_spend = df_prop["$ Amount"].sum()
+total_usage = df_prop["Usage"].sum()
+avg_cpor = df_prop["CPOR"].mean() if "CPOR" in df_prop.columns else None
 
-# -----------------------------
-# MONTHLY CHARTS
-# -----------------------------
-st.subheader("Monthly Spend & Usage")
+col1.metric("Total Spend", money(total_spend))
+col2.metric("Total Usage", f"{total_usage:,.0f}")
+col3.metric("Average CPOR", money(avg_cpor))
 
-m = (
-    f.groupby(["Year", "Month"], as_index=False)
-     .agg({"$ Amount": "sum", "Usage": "sum"})
-     .sort_values(["Year", "Month"])
-)
-
-left, right = st.columns(2)
-
-cost_chart = (
-    alt.Chart(m)
-    .mark_line(point=True)
-    .encode(
-        x=alt.X("Month", sort=month_order),
-        y="$ Amount",
-        color="Year:N",
-        tooltip=["Year", "Month", "$ Amount"]
-    )
-)
-
-usage_chart = (
-    alt.Chart(m)
-    .mark_line(point=True)
-    .encode(
-        x=alt.X("Month", sort=month_order),
-        y="Usage",
-        color="Year:N",
-        tooltip=["Year", "Month", "Usage"]
-    )
-)
-
-left.altair_chart(cost_chart, use_container_width=True)
-right.altair_chart(usage_chart, use_container_width=True)
+st.write("---")
 
 # -----------------------------
-# RAW DATA TABLE
+# Property Table
 # -----------------------------
-st.subheader("Raw Bills")
-st.dataframe(
-    f[
-        [
-            "Billing Date",
-            "Utility",
-            "Usage",
-            "$ Amount",
-            "Number Days Billed",
-            "Occupied Rooms",
-            "# Units",
-            "Cost_per_Unit",
-            "Cost_per_Occupied_Room",
-            "Cost_per_Available_Room",
-        ]
-    ].sort_values("Billing Date"),
-    use_container_width=True,
-)
+st.subheader(f"{selected_property} — Detailed Records")
+
+df_display = df_prop.copy()
+
+money_cols = [
+    "$ Amount", "Cost_per_Unit", "Cost_per_Occupied_Room",
+    "Cost_per_Available_Room", "CPOR", "CPAR"
+]
+
+for col in money_cols:
+    if col in df_display.columns:
+        df_display[col] = df_display[col].apply(money)
+
+st.dataframe(df_display, use_container_width=True)
