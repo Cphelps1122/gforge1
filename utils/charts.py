@@ -1,42 +1,20 @@
 import altair as alt
+import pandas as pd
+from utils.formatting import money
 
-def cost_trend_chart(df, month_order):
-    cost_trend = df.groupby(["Year", "Month"], as_index=False)["$ Amount"].sum()
-    return (
-        alt.Chart(cost_trend)
+def cost_trend_chart(df, property_name):
+    df_prop = df[df["Property Name"] == property_name].copy()
+    df_prop = df_prop.sort_values("Month")
+
+    chart = (
+        alt.Chart(df_prop)
         .mark_line(point=True)
         .encode(
-            x=alt.X("Month", sort=month_order),
-            y="$ Amount",
-            color="Year:N",
-            tooltip=["Year", "Month", "$ Amount"]
+            x="Month:T",
+            y=alt.Y("$ Amount:Q", title="Cost ($)"),
+            tooltip=["Month", "$ Amount"]
         )
+        .properties(height=300)
     )
 
-def usage_trend_chart(df, month_order):
-    usage_trend = df.groupby(["Year", "Month"], as_index=False)["Usage"].sum()
-    return (
-        alt.Chart(usage_trend)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("Month", sort=month_order),
-            y="Usage",
-            color="Year:N",
-            tooltip=["Year", "Month", "Usage"]
-        )
-    )
-
-def spend_by_property_chart(df):
-    prop_breakdown = (
-        df.groupby("Property Name", as_index=False)["$ Amount"].sum()
-        .sort_values("$ Amount", ascending=False)
-    )
-    return (
-        alt.Chart(prop_breakdown)
-        .mark_bar()
-        .encode(
-            x="Property Name:N",
-            y="$ Amount:Q",
-            tooltip=["Property Name", "$ Amount"]
-        )
-    )
+    return chart
