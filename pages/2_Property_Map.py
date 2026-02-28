@@ -5,36 +5,25 @@ from utils.formatting import money
 
 st.title("Property Map")
 
-# Ensure file is uploaded
-uploaded_file = st.session_state.get("uploaded_file_obj")
-if uploaded_file is None:
-    st.write("Please upload your Excel file using the sidebar.")
-    st.stop()
-
-df, month_order = load_property_ledger(uploaded_file)
+# Auto-load newest file
+df, month_order = load_property_ledger()
 
 if df is None or df.empty:
-    st.error("Unable to load data. Please check the uploaded file.")
+    st.error("No data available. Please add an Excel file to /data.")
     st.stop()
 
-# -----------------------------
-# Validate map columns
-# -----------------------------
+# Validate required columns
 required_cols = ["Latitude", "Longitude", "Property Name", "$ Amount"]
-
 for col in required_cols:
     if col not in df.columns:
         st.error(f"Missing required column for mapping: {col}")
         st.stop()
 
-# -----------------------------
-# Map View
-# -----------------------------
-st.subheader("Portfolio Map View")
-
+# Prepare map data
 df_map = df.copy()
 df_map["Formatted Cost"] = df_map["$ Amount"].apply(money)
 
+# Map layer
 layer = pdk.Layer(
     "ScatterplotLayer",
     data=df_map,
