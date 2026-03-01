@@ -1,10 +1,27 @@
-import streamlit as st
 import pandas as pd
-from utils.noaa import get_noaa_daily
+from pathlib import Path
 
 def load_property_ledger():
-    uploaded_file = "data/mcneill_database.xlsx"
-    df = pd.read_excel(uploaded_file, sheet_name="Raw Data")
+    data_folder = Path("data")
+
+    # Find all Excel files in /data
+    excel_files = list(data_folder.glob("*.xlsx"))
+    if not excel_files:
+        return None, None
+
+    # Pick the newest file
+    newest_file = max(excel_files, key=lambda f: f.stat().st_mtime)
+
+    # Load ONLY the Raw Data sheet
+    df = pd.read_excel(newest_file, sheet_name="Raw Data")
+
+    # Do NOT force Month into datetime — your restored version uses labels like "Jan"
+    if "Month" in df.columns:
+        month_order = list(df["Month"].unique())
+    else:
+        month_order = None
+
+    return df, month_order)
 
     # -----------------------------
     # LOAD RAW DATA
@@ -116,5 +133,6 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
 
 
