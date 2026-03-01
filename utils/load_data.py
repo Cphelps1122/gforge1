@@ -19,6 +19,14 @@ def load_property_ledger():
     # DERIVED COLUMNS (restore compatibility)
     # -----------------------------
 
+    # Usage per Occupied Room
+    if "Usage" in df.columns and "Occupied Rooms" in df.columns:
+        df["Usage_per_Occupied_Room"] = df["Usage"] / df["Occupied Rooms"].replace(0, pd.NA)
+
+    # Usage per Available Room
+    if "Usage" in df.columns and "# Units" in df.columns:
+        df["Usage_per_Available_Room"] = df["Usage"] / df["# Units"].replace(0, pd.NA)
+
     # Cost per Unit
     if "Usage" in df.columns and "$ Amount" in df.columns:
         df["Cost_per_Unit"] = df["$ Amount"] / df["Usage"].replace(0, pd.NA)
@@ -38,3 +46,4 @@ def load_property_ledger():
         month_order = None
 
     return df, month_order
+
