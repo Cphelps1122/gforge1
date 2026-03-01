@@ -37,7 +37,7 @@ if df is None:
     st.write("COLUMNS:", list(df.columns))
 
 # ⭐ MUST come before the header
-last_updated = df["Billing Date"].max()
+last_updated = df["Billing Date"].max().strftime("%b %d, %Y") if pd.notna(df["Billing Date"].max()) else "N/A"
 metrics = portfolio_metrics(df)
 
 # -----------------------------
@@ -135,6 +135,7 @@ st.altair_chart(chart_weather, use_container_width=True)
 st.subheader("Spend by Property")
 
 st.altair_chart(spend_by_property_chart(df), use_container_width=True)
+
 
 
 
