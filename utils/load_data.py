@@ -15,13 +15,13 @@ def load_property_ledger():
     # Load ONLY the Raw Data sheet
     df = pd.read_excel(newest_file, sheet_name="Raw Data")
 
-    # Do NOT force Month into datetime — your restored version uses labels like "Jan"
+    # Month order (no datetime conversion)
     if "Month" in df.columns:
         month_order = list(df["Month"].unique())
     else:
         month_order = None
 
-    return df, month_order)
+    return df, month_order
 
     # -----------------------------
     # LOAD RAW DATA
@@ -133,6 +133,7 @@ def load_property_ledger():
     ]
 
     return df, month_order
+
 
 
 
