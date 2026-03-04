@@ -16,9 +16,11 @@ if df is None or df.empty:
 if "Billing Date" in df.columns:
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
-# Ensure Year exists
+# Ensure Year / Month_Num exist
 if "Year" not in df.columns and "Billing Date" in df.columns:
     df["Year"] = df["Billing Date"].dt.year
+if "Month_Num" not in df.columns and "Billing Date" in df.columns:
+    df["Month_Num"] = df["Billing Date"].dt.month
 
 st.title("📊 Portfolio Benchmarking Platform")
 
@@ -29,23 +31,12 @@ with st.expander("ℹ️ Benchmarking Definitions"):
     st.markdown("""
 ### **Key Benchmarking Metrics**
 
-**CPOR (Cost per Occupied Room)**  
-Total spend divided by occupied rooms. Lower is better.
-
-**CPAR (Cost per Available Room)**  
-Spend divided by total rooms. Normalizes for property size.
-
-**Cost per Unit**  
-Spend divided by usage. Indicates rate efficiency.
-
-**Usage per Occupied Room**  
-How much utility is consumed per occupied room.
-
-**YOY Change**  
-Year-over-year percent change.
-
-**Outlier**  
-A property whose metric is statistically far from the portfolio average (high Z-score).
+**CPOR (Cost per Occupied Room)** – Lower is better  
+**CPAR (Cost per Available Room)** – Normalizes for property size  
+**Cost per Unit** – Spend ÷ Usage  
+**Usage per Occupied Room** – Efficiency of consumption  
+**YOY Change** – Year-over-year percent change  
+**Outlier** – A statistically unusual value (high Z-score)
 """)
 
 # -----------------------------
@@ -53,10 +44,10 @@ A property whose metric is statistically far from the portfolio average (high Z-
 # -----------------------------
 col_f1, col_f2, col_f3 = st.columns(3)
 
-years = sorted(df["Year"].dropna().unique()) if "Year" in df.columns else []
-selected_year = col_f1.selectbox("Benchmark Year", years if years else [None])
+years = sorted(df["Year"].dropna().unique())
+selected_year = col_f1.selectbox("Benchmark Year", years)
 
-utilities = ["All"] + sorted(df["Utility"].unique()) if "Utility" in df.columns else ["All"]
+utilities = ["All"] + sorted(df["Utility"].unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
 metric_category = col_f3.selectbox(
@@ -69,10 +60,8 @@ metric_category = col_f3.selectbox(
     ],
 )
 
-f = df.copy()
-if selected_year is not None:
-    f = f[f["Year"] == selected_year]
-if selected_utility != "All" and "Utility" in f.columns:
+f = df[df["Year"] == selected_year].copy()
+if selected_utility != "All":
     f = f[f["Utility"] == selected_utility]
 
 if f.empty:
@@ -80,7 +69,7 @@ if f.empty:
     st.stop()
 
 # -----------------------------
-# EXECUTIVE BENCHMARKING KPIs (NOW FIRST)
+# EXECUTIVE KPIs (FIRST)
 # -----------------------------
 st.subheader("🏆 Executive Benchmarking KPIs")
 
@@ -89,52 +78,34 @@ total_usage = f["Usage"].sum() if "Usage" in f.columns else None
 avg_cpor = f["CPOR"].mean() if "CPOR" in f.columns else None
 avg_cpar = f["CPAR"].mean() if "CPAR" in f.columns else None
 
-# YOY vs previous year
-if "Year" in df.columns and selected_year is not None:
-    prev_year = selected_year - 1
-    prev = df[df["Year"] == prev_year]
-    py_spend = prev["$ Amount"].sum() if "$ Amount" in prev.columns else None
-    py_usage = prev["Usage"].sum() if "Usage" in prev.columns else None
-    py_cpor = prev["CPOR"].mean() if "CPOR" in prev.columns else None
-    py_cpar = prev["CPAR"].mean() if "CPAR" in prev.columns else None
+# YOY comparison
+prev_year = selected_year - 1
+prev = df[df["Year"] == prev_year]
 
-    yoy_spend = (
-        (total_spend - py_spend) / py_spend * 100
-        if py_spend not in (0, None) and total_spend is not None
-        else None
-    )
-    yoy_usage = (
-        (total_usage - py_usage) / py_usage * 100
-        if py_usage not in (0, None) and total_usage is not None
-        else None
-    )
-    yoy_cpor = (
-        (avg_cpor - py_cpor) / py_cpor * 100
-        if py_cpor not in (0, None) and avg_cpor is not None
-        else None
-    )
-    yoy_cpar = (
-        (avg_cpar - py_cpar) / py_cpar * 100
-        if py_cpar not in (0, None) and avg_cpar is not None
-        else None
-    )
-else:
-    yoy_spend = yoy_usage = yoy_cpor = yoy_cpar = None
+def safe_yoy(curr, prev):
+    if prev in (0, None) or curr is None:
+        return None
+    return (curr - prev) / prev * 100
+
+yoy_spend = safe_yoy(total_spend, prev["$ Amount"].sum() if "$ Amount" in prev.columns else None)
+yoy_usage = safe_yoy(total_usage, prev["Usage"].sum() if "Usage" in prev.columns else None)
+yoy_cpor = safe_yoy(avg_cpor, prev["CPOR"].mean() if "CPOR" in prev.columns else None)
+yoy_cpar = safe_yoy(avg_cpar, prev["CPAR"].mean() if "CPAR" in prev.columns else None)
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Spend", f"${total_spend:,.0f}" if total_spend is not None else "N/A")
-k2.metric("Total Usage", f"{total_usage:,.0f}" if total_usage is not None else "N/A")
-k3.metric("Avg CPOR", f"${avg_cpor:,.2f}" if avg_cpor is not None else "N/A")
-k4.metric("Avg CPAR", f"${avg_cpar:,.2f}" if avg_cpar is not None else "N/A")
+k1.metric("Total Spend", f"${total_spend:,.0f}" if total_spend else "N/A")
+k2.metric("Total Usage", f"{total_usage:,.0f}" if total_usage else "N/A")
+k3.metric("Avg CPOR", f"${avg_cpor:,.2f}" if avg_cpor else "N/A")
+k4.metric("Avg CPAR", f"${avg_cpar:,.2f}" if avg_cpar else "N/A")
 
 k5, k6, k7, k8 = st.columns(4)
-k5.metric("YOY Spend Change", f"{yoy_spend:.1f}%" if yoy_spend is not None else "N/A")
-k6.metric("YOY Usage Change", f"{yoy_usage:.1f}%" if yoy_usage is not None else "N/A")
-k7.metric("YOY CPOR Change", f"{yoy_cpor:.1f}%" if yoy_cpor is not None else "N/A")
-k8.metric("YOY CPAR Change", f"{yoy_cpar:.1f}%" if yoy_cpar is not None else "N/A")
+k5.metric("YOY Spend Change", f"{yoy_spend:.1f}%" if yoy_spend else "N/A")
+k6.metric("YOY Usage Change", f"{yoy_usage:.1f}%" if yoy_usage else "N/A")
+k7.metric("YOY CPOR Change", f"{yoy_cpor:.1f}%" if yoy_cpor else "N/A")
+k8.metric("YOY CPAR Change", f"{yoy_cpar:.1f}%" if yoy_cpar else "N/A")
 
 # -----------------------------
-# METRIC SELECTION BY CATEGORY
+# METRIC SELECTION
 # -----------------------------
 if metric_category == "Cost Efficiency":
     metric_options = ["CPOR", "CPAR", "Cost_per_Unit"]
@@ -149,7 +120,7 @@ available_metrics = [m for m in metric_options if m in f.columns]
 selected_metric = st.selectbox("Benchmark Metric", available_metrics)
 
 # -----------------------------
-# BUILD RANK DF (used in summary + ranking)
+# RANK DF (used in summary + ranking)
 # -----------------------------
 rank_df = (
     f.groupby("Property Name", as_index=False)[selected_metric]
@@ -196,68 +167,80 @@ for col_name, label in outlier_metrics:
                         )
 
 # -----------------------------
-# BENCHMARKING SUMMARY (NOW SECOND)
+# BENCHMARKING SUMMARY (SECOND)
 # -----------------------------
 st.subheader("📌 Benchmarking Summary")
 
 summary_lines = []
 
-if rank_df is not None and not rank_df.empty:
-    best_prop = rank_df.iloc[0]["Property Name"]
-    worst_prop = rank_df.iloc[-1]["Property Name"]
-    summary_lines.append(f"- **Best performer for {selected_metric.replace('_', ' ')}:** {best_prop}")
-    summary_lines.append(f"- **Lowest performer for {selected_metric.replace('_', ' ')}:** {worst_prop}")
+if not rank_df.empty:
+    summary_lines.append(f"- **Top performer:** {rank_df.iloc[0]['Property Name']}")
+    summary_lines.append(f"- **Lowest performer:** {rank_df.iloc[-1]['Property Name']}")
 
 if outlier_rows:
-    summary_lines.append(f"- **Outliers detected:** {len(outlier_rows)} properties show unusual efficiency patterns.")
+    summary_lines.append(f"- **{len(outlier_rows)} properties** show unusual efficiency patterns.")
 else:
-    summary_lines.append("- No strong outliers detected across key efficiency metrics.")
+    summary_lines.append("- No strong outliers detected.")
 
-if yoy_cpor is not None:
-    if yoy_cpor < 0:
-        summary_lines.append(f"- **Portfolio CPOR improved** by {abs(yoy_cpor):.1f}% vs prior year.")
-    elif yoy_cpor > 0:
-        summary_lines.append(f"- **Portfolio CPOR worsened** by {yoy_cpor:.1f}% vs prior year.")
-    else:
-        summary_lines.append("- **Portfolio CPOR unchanged** vs prior year.")
-
-if yoy_cpar is not None:
-    if yoy_cpar < 0:
-        summary_lines.append(f"- **Portfolio CPAR improved** by {abs(yoy_cpar):.1f}% vs prior year.")
-    elif yoy_cpar > 0:
-        summary_lines.append(f"- **Portfolio CPAR worsened** by {yoy_cpar:.1f}% vs prior year.")
-    else:
-        summary_lines.append("- **Portfolio CPAR unchanged** vs prior year.")
-
-if not summary_lines:
-    summary_lines.append("No significant benchmarking insights could be derived with the current filters.")
+if yoy_cpor:
+    summary_lines.append(f"- CPOR changed **{yoy_cpor:.1f}%** vs last year.")
+if yoy_cpar:
+    summary_lines.append(f"- CPAR changed **{yoy_cpar:.1f}%** vs last year.")
 
 st.markdown("\n".join(summary_lines))
 
 # -----------------------------
-# PROPERTIES REQUIRING ATTENTION (NOW THIRD)
+# OUTLIERS (THIRD)
 # -----------------------------
-st.subheader("🚨 Properties Requiring Attention (Outliers)")
+st.subheader("🚨 Properties Requiring Attention")
 
 if outlier_rows:
     st.dataframe(pd.DataFrame(outlier_rows))
 else:
-    st.info("No strong outliers detected based on current thresholds.")
+    st.info("No strong outliers detected.")
 
 # -----------------------------
-# PORTFOLIO EFFICIENCY RANKING
+# UTILITY-LEVEL BENCHMARKING (NOW FOURTH + LINE GRAPHS)
+# -----------------------------
+st.subheader("🔌 Utility-Level Benchmarking (Line Trends)")
+
+if {"Utility", "Month_Num", selected_metric}.issubset(f.columns):
+    util_df = (
+        f.groupby(["Utility", "Month_Num"], as_index=False)[selected_metric]
+        .mean()
+        .dropna(subset=[selected_metric])
+    )
+
+    if not util_df.empty:
+        chart_util_line = (
+            alt.Chart(util_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("Month_Num:O", title="Month"),
+                y=alt.Y(f"{selected_metric}:Q", title=selected_metric.replace("_", " ")),
+                color=alt.Color("Utility:N", title="Utility"),
+                tooltip=["Utility", "Month_Num", selected_metric],
+            )
+            .properties(height=350)
+        )
+        st.altair_chart(chart_util_line, use_container_width=True)
+    else:
+        st.info("No utility-level data available for line benchmarking.")
+else:
+    st.info("Utility-level benchmarking requires Utility, Month_Num, and the selected metric.")
+
+# -----------------------------
+# PORTFOLIO RANKING
 # -----------------------------
 st.subheader("🏅 Portfolio Efficiency Ranking")
 
-if rank_df.empty:
-    st.info("No data available to rank properties for this metric.")
-else:
+if not rank_df.empty:
     chart_rank = (
         alt.Chart(rank_df)
         .mark_bar()
         .encode(
             x=alt.X(selected_metric + ":Q", title=selected_metric.replace("_", " ")),
-            y=alt.Y("Property Name:N", sort="-x", title="Property"),
+            y=alt.Y("Property Name:N", sort="-x"),
             color=alt.Color(selected_metric + ":Q", legend=None),
             tooltip=["Property Name", selected_metric, "Rank"],
         )
@@ -265,11 +248,13 @@ else:
     )
     st.altair_chart(chart_rank, use_container_width=True)
     st.dataframe(rank_df)
+else:
+    st.info("No ranking data available.")
 
 # -----------------------------
-# EFFICIENCY SCORECARDS
+# SCORECARDS
 # -----------------------------
-st.subheader("📇 Efficiency Scorecards by Property")
+st.subheader("📇 Efficiency Scorecards")
 
 metrics_to_grade = [
     ("CPOR", "CPOR"),
@@ -305,10 +290,7 @@ for prop_name, group in f.groupby("Property Name"):
             row[label + " Grade"] = "N/A"
     score_rows.append(row)
 
-if score_rows:
-    st.dataframe(pd.DataFrame(score_rows))
-else:
-    st.info("Not enough data to compute efficiency scorecards.")
+st.dataframe(pd.DataFrame(score_rows))
 
 # -----------------------------
 # SCATTERPLOTS
@@ -329,15 +311,15 @@ with scatter_cols[0]:
             alt.Chart(agg_scatter)
             .mark_circle(size=120)
             .encode(
-                x=alt.X("Usage:Q", title="Usage"),
-                y=alt.Y("Spend:Q", title="Spend ($)"),
+                x=alt.X("Usage:Q"),
+                y=alt.Y("Spend:Q"),
                 tooltip=["Property Name", "Usage", "Spend"],
             )
             .properties(height=350)
         )
         st.altair_chart(chart_scatter1, use_container_width=True)
     else:
-        st.info("Spend vs Usage scatterplot not available.")
+        st.info("Spend vs Usage scatterplot unavailable.")
 
 with scatter_cols[1]:
     st.markdown("**CPOR vs CPAR**")
@@ -347,22 +329,19 @@ with scatter_cols[1]:
             .mean()
             .dropna(subset=["CPOR", "CPAR"])
         )
-        if not agg_eff.empty:
-            chart_scatter2 = (
-                alt.Chart(agg_eff)
-                .mark_circle(size=120)
-                .encode(
-                    x=alt.X("CPOR:Q", title="CPOR"),
-                    y=alt.Y("CPAR:Q", title="CPAR"),
-                    tooltip=["Property Name", "CPOR", "CPAR"],
-                )
-                .properties(height=350)
+        chart_scatter2 = (
+            alt.Chart(agg_eff)
+            .mark_circle(size=120)
+            .encode(
+                x=alt.X("CPOR:Q"),
+                y=alt.Y("CPAR:Q"),
+                tooltip=["Property Name", "CPOR", "CPAR"],
             )
-            st.altair_chart(chart_scatter2, use_container_width=True)
-        else:
-            st.info("Not enough CPOR/CPAR data for scatterplot.")
+            .properties(height=350)
+        )
+        st.altair_chart(chart_scatter2, use_container_width=True)
     else:
-        st.info("CPOR/CPAR scatterplot not available.")
+        st.info("CPOR/CPAR scatterplot unavailable.")
 
 # -----------------------------
 # HEATMAP
@@ -393,51 +372,13 @@ if heat_rows:
         alt.Chart(heat_df)
         .mark_rect()
         .encode(
-            x=alt.X("Metric:N", title="Metric"),
-            y=alt.Y("Property Name:N", title="Property"),
-            color=alt.Color("Value:Q", title="Value", scale=alt.Scale(scheme="redyellowgreen", reverse=True)),
+            x=alt.X("Metric:N"),
+            y=alt.Y("Property Name:N"),
+            color=alt.Color("Value:Q", scale=alt.Scale(scheme="redyellowgreen", reverse=True)),
             tooltip=["Property Name", "Metric", "Value"],
         )
         .properties(height=500)
     )
     st.altair_chart(chart_heat, use_container_width=True)
 else:
-    st.info("Not enough data to build heatmap.")
-
-# -----------------------------
-# UTILITY-LEVEL BENCHMARKING
-# -----------------------------
-st.subheader("🔌 Utility-Level Benchmarking")
-
-if "Utility" in f.columns and "Property Name" in f.columns:
-    util_metric = st.selectbox(
-        "Utility Benchmark Metric",
-        [m for m in ["CPOR", "CPAR", "Cost_per_Unit", "Usage_per_Occupied_Room"] if m in f.columns],
-    )
-
-    if util_metric:
-        util_df = (
-            f.groupby(["Utility", "Property Name"], as_index=False)[util_metric]
-            .mean()
-            .dropna(subset=[util_metric])
-        )
-
-        if not util_df.empty:
-            chart_util = (
-                alt.Chart(util_df)
-                .mark_bar()
-                .encode(
-                    x=alt.X(util_metric + ":Q", title=util_metric.replace("_", " ")),
-                    y=alt.Y("Property Name:N", sort="-x", title="Property"),
-                    color=alt.Color("Utility:N", title="Utility"),
-                    tooltip=["Property Name", "Utility", util_metric],
-                )
-                .properties(height=500)
-            )
-            st.altair_chart(chart_util, use_container_width=True)
-        else:
-            st.info("No utility-level data available for this metric.")
-    else:
-        st.info("No utility-level metrics available.")
-else:
-    st.info("Utility-level benchmarking not available.")
+    st.info("Not enough data for heatmap.")
