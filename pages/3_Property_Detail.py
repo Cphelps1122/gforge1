@@ -16,6 +16,12 @@ if df is None or df.empty:
 if "Billing Date" in df.columns:
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
+# Ensure Year / Month_Num exist
+if "Year" not in df.columns and "Billing Date" in df.columns:
+    df["Year"] = df["Billing Date"].dt.year
+if "Month_Num" not in df.columns and "Billing Date" in df.columns:
+    df["Month_Num"] = df["Billing Date"].dt.month
+
 st.title("🏨 Property Energy Detail")
 
 # -----------------------------
@@ -92,76 +98,244 @@ colE.metric(
 )
 
 # -----------------------------
-# CPOR HERO TREND (PER PROPERTY)
+# UTILITY MIX DONUTS
 # -----------------------------
-st.subheader("Year-over-Year Efficiency Trend (CPOR)")
+st.subheader("Utility Mix for This Property")
 
-if {"CPOR", "Month_Num", "Year"}.issubset(f.columns):
-    cpor_df = (
-        f.groupby(["Year", "Month_Num"], as_index=False)["CPOR"]
-        .mean()
-        .dropna(subset=["CPOR"])
-    )
-
-    chart_cpor = (
-        alt.Chart(cpor_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("Month_Num:O", title="Month"),
-            y=alt.Y("CPOR:Q", title="Cost per Occupied Room"),
-            color=alt.Color("Year:N", title="Year"),
-            tooltip=["Year", "Month_Num", "CPOR"],
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(chart_cpor, use_container_width=True)
-else:
-    st.info("Not enough data to build CPOR trend for this property.")
-
-# -----------------------------
-# UTILITY BREAKDOWN (PROPERTY LEVEL)
-# -----------------------------
-st.subheader("Utility Spend & Usage for This Property")
-
-if {"Utility", "Year", "$ Amount", "Usage"}.issubset(f.columns):
-    util_agg = (
-        f.groupby(["Utility", "Year"], as_index=False)[["$ Amount", "Usage"]]
+if {"Utility", "$ Amount"}.issubset(f.columns):
+    spend_mix = (
+        f.groupby("Utility", as_index=False)["$ Amount"]
         .sum()
+        .rename(columns={"$ Amount": "Spend"})
     )
+    spend_mix = spend_mix[spend_mix["Spend"] > 0]
 
-    col_u1, col_u2 = st.columns(2)
+    col_m1, col_m2 = st.columns(2)
 
-    with col_u1:
-        st.markdown("**Spend by Utility (by Year)**")
-        chart_spend = (
-            alt.Chart(util_agg)
-            .mark_bar()
-            .encode(
-                x=alt.X("Utility:N", title="Utility"),
-                y=alt.Y("$ Amount:Q", title="Spend ($)"),
-                color=alt.Color("Year:N", title="Year"),
-                tooltip=["Utility", "Year", "$ Amount"],
+    with col_m1:
+        st.markdown("**Spend Mix**")
+        if not spend_mix.empty:
+            chart_spend_mix = (
+                alt.Chart(spend_mix)
+                .mark_arc(innerRadius=50)
+                .encode(
+                    theta=alt.Theta("Spend:Q", stack=True),
+                    color=alt.Color("Utility:N", title="Utility"),
+                    tooltip=["Utility", "Spend"],
+                )
+                .properties(height=300)
             )
-            .properties(height=300)
-        )
-        st.altair_chart(chart_spend, use_container_width=True)
+            st.altair_chart(chart_spend_mix, use_container_width=True)
+        else:
+            st.info("No spend data available for utility mix.")
 
-    with col_u2:
-        st.markdown("**Usage by Utility (by Year)**")
-        chart_usage = (
-            alt.Chart(util_agg)
-            .mark_bar()
-            .encode(
-                x=alt.X("Utility:N", title="Utility"),
-                y=alt.Y("Usage:Q", title="Usage"),
-                color=alt.Color("Year:N", title="Year"),
-                tooltip=["Utility", "Year", "Usage"],
+    with col_m2:
+        st.markdown("**Usage Mix**")
+        if {"Utility", "Usage"}.issubset(f.columns):
+            usage_mix = (
+                f.groupby("Utility", as_index=False)["Usage"]
+                .sum()
+                .rename(columns={"Usage": "UsageTotal"})
             )
-            .properties(height=300)
-        )
-        st.altair_chart(chart_usage, use_container_width=True)
+            usage_mix = usage_mix[usage_mix["UsageTotal"] > 0]
+            if not usage_mix.empty:
+                chart_usage_mix = (
+                    alt.Chart(usage_mix)
+                    .mark_arc(innerRadius=50)
+                    .encode(
+                        theta=alt.Theta("UsageTotal:Q", stack=True),
+                        color=alt.Color("Utility:N", title="Utility"),
+                        tooltip=["Utility", "UsageTotal"],
+                    )
+                    .properties(height=300)
+                )
+                st.altair_chart(chart_usage_mix, use_container_width=True)
+            else:
+                st.info("No usage data available for utility mix.")
+        else:
+            st.info("Usage column not available for utility mix.")
 else:
-    st.info("Utility-level breakdown not fully available for this property.")
+    st.info("Utility-level data not available for mix charts.")
+
+# -----------------------------
+# BILLING HEALTH CHECK
+# -----------------------------
+st.subheader("Billing Health Check")
+
+health_msgs = []
+
+if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
+    # Work only on selected years
+    bh = f.dropna(subset=["Billing Date", "Year", "Month_Num"]).copy()
+    if not bh.empty:
+        years_in_scope = sorted(bh["Year"].unique())
+        missing_by_year = {}
+        duplicate_months = []
+        zero_usage_months = []
+        zero_spend_months = []
+
+        for y in years_in_scope:
+            sub = bh[bh["Year"] == y]
+            months_present = sorted(sub["Month_Num"].unique())
+            expected = set(range(1, 13))
+            missing = sorted(expected - set(months_present))
+            if missing:
+                missing_by_year[y] = missing
+
+            # duplicates: same year + month + utility more than once
+            dup = (
+                sub.groupby(["Year", "Month_Num", "Utility"])
+                .size()
+                .reset_index(name="count")
+            )
+            duplicate_months.extend(
+                dup[dup["count"] > 1][["Year", "Month_Num", "Utility"]].to_dict("records")
+            )
+
+            if "Usage" in sub.columns:
+                zero_usage = sub[sub["Usage"] == 0][["Year", "Month_Num", "Utility"]]
+                zero_usage_months.extend(zero_usage.to_dict("records"))
+
+            if "$ Amount" in sub.columns:
+                zero_spend = sub[sub["$ Amount"] == 0][["Year", "Month_Num", "Utility"]]
+                zero_spend_months.extend(zero_spend.to_dict("records"))
+
+        if not missing_by_year and not duplicate_months and not zero_usage_months and not zero_spend_months:
+            st.success("Billing health looks good. No missing, duplicate, or zero-activity months detected.")
+        else:
+            if missing_by_year:
+                for y, miss in missing_by_year.items():
+                    health_msgs.append(f"Missing months in {y}: {', '.join(str(m) for m in miss)}")
+            if duplicate_months:
+                health_msgs.append(f"Duplicate bills detected: {len(duplicate_months)} month-utility combinations.")
+            if zero_usage_months:
+                health_msgs.append(f"Months with zero usage: {len(zero_usage_months)}.")
+            if zero_spend_months:
+                health_msgs.append(f"Months with zero spend: {len(zero_spend_months)}.")
+
+            for msg in health_msgs:
+                st.warning(msg)
+    else:
+        st.info("Not enough billing data to assess health.")
+else:
+    st.info("Billing date/year/month information not sufficient for health check.")
+
+# -----------------------------
+# ANOMALY DETECTION
+# -----------------------------
+st.subheader("Anomaly Detection (Spend & Usage)")
+
+anomaly_rows = []
+
+if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
+    agg_cols = []
+    if "$ Amount" in f.columns:
+        agg_cols.append("$ Amount")
+    if "Usage" in f.columns:
+        agg_cols.append("Usage")
+
+    if agg_cols:
+        monthly = (
+            f.groupby(["Year", "Month_Num"], as_index=False)[agg_cols]
+            .sum()
+            .sort_values(["Year", "Month_Num"])
+        )
+
+        # Z-score anomalies
+        for col in agg_cols:
+            series = monthly[col]
+            mean = series.mean()
+            std = series.std()
+            if std and std > 0:
+                monthly[f"{col}_z"] = (series - mean) / std
+            else:
+                monthly[f"{col}_z"] = 0
+
+        # MoM percent change
+        monthly = monthly.sort_values(["Year", "Month_Num"])
+        monthly["date_key"] = pd.to_datetime(
+            monthly["Year"].astype(str) + "-" + monthly["Month_Num"].astype(str) + "-01",
+            errors="coerce",
+        )
+        monthly = monthly.sort_values("date_key")
+
+        for col in agg_cols:
+            monthly[f"{col}_mom_pct"] = monthly[col].pct_change()
+
+        # Flag anomalies
+        for _, row in monthly.iterrows():
+            for col in agg_cols:
+                z = row.get(f"{col}_z", 0)
+                mom = row.get(f"{col}_mom_pct", 0)
+                if abs(z) >= 2 or (pd.notna(mom) and abs(mom) >= 0.3):
+                    anomaly_rows.append(
+                        {
+                            "Year": int(row["Year"]),
+                            "Month": int(row["Month_Num"]),
+                            "Metric": col,
+                            "Value": row[col],
+                            "Z-Score": round(z, 2),
+                            "MoM %": round(mom * 100, 1) if pd.notna(mom) else None,
+                        }
+                    )
+
+if anomaly_rows:
+    st.write("Potential anomalies (statistical outliers or large month-over-month changes):")
+    st.dataframe(pd.DataFrame(anomaly_rows))
+else:
+    st.info("No significant anomalies detected based on current thresholds.")
+
+# -----------------------------
+# EFFICIENCY SCORECARD
+# -----------------------------
+st.subheader("Efficiency Scorecard")
+
+metrics_to_grade = [
+    ("CPOR", "Cost per Occupied Room"),
+    ("CPAR", "Cost per Available Room"),
+    ("Cost_per_Unit", "Cost per Unit"),
+    ("Usage_per_Occupied_Room", "Usage per Occupied Room"),
+]
+
+score_rows = []
+
+df_portfolio = df.copy()
+if selected_years and "Year" in df_portfolio.columns:
+    df_portfolio = df_portfolio[df_portfolio["Year"].isin(selected_years)]
+
+for col_name, label in metrics_to_grade:
+    if col_name in f.columns and col_name in df_portfolio.columns:
+        prop_val = f[col_name].mean()
+        port_val = df_portfolio[col_name].mean()
+        if pd.notna(prop_val) and pd.notna(port_val) and port_val != 0:
+            diff_pct = (prop_val - port_val) / port_val * 100
+
+            # Grade thresholds (lower is better for cost/usage metrics)
+            if diff_pct <= -20:
+                grade = "A"
+            elif diff_pct <= -10:
+                grade = "B"
+            elif abs(diff_pct) <= 10:
+                grade = "C"
+            elif diff_pct <= 25:
+                grade = "D"
+            else:
+                grade = "F"
+
+            score_rows.append(
+                {
+                    "Metric": label,
+                    "Property Value": round(prop_val, 3),
+                    "Portfolio Avg": round(port_val, 3),
+                    "Diff %": round(diff_pct, 1),
+                    "Grade": grade,
+                }
+            )
+
+if score_rows:
+    st.dataframe(pd.DataFrame(score_rows))
+else:
+    st.info("Not enough data to compute efficiency scorecard for this property.")
 
 # -----------------------------
 # RAW TABLE
