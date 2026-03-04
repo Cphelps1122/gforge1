@@ -5,6 +5,8 @@ import requests
 import os
 import glob
 import re
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils.load_data import load_property_ledger
 
@@ -415,3 +417,4 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
+
