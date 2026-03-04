@@ -4,24 +4,25 @@ import pydeck as pdk
 import requests
 import os
 import glob
+import re
 
 from utils.load_data import load_property_ledger
 
 # ============================================================
-# 1. LOAD LEDGER + PROVIDER TAB
+# 1. LOAD LEDGER
 # ============================================================
 df, month_order = load_property_ledger()
-
 st.title("📍 Property Map")
 
 if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
-# Normalize ledger column names (strip spaces)
 df.columns = df.columns.str.strip()
 
-# ---- Load Provider tab directly from the same Excel file ----
+# ============================================================
+# 2. LOAD PROVIDER TAB
+# ============================================================
 def load_provider_tab():
     files = glob.glob("data/*.xlsx")
     if not files:
@@ -37,78 +38,76 @@ def load_provider_tab():
 provider_df = load_provider_tab()
 
 if provider_df is None or provider_df.empty:
-    st.error("Could not load 'Provider' tab from the Excel file in /data.")
-    st.stop()
-
-# Expected columns in Provider tab (after stripping)
-provider_required = [
-    "Code",
-    "Name of utility provider",
-    "Address",
-    "City",
-    "State",
-    "Zip Code",
-    "Utility",
-]
-missing_provider = [c for c in provider_required if c not in provider_df.columns]
-if missing_provider:
-    st.error(f"Provider tab is missing required columns: {', '.join(missing_provider)}")
+    st.error("Could not load Provider tab.")
     st.stop()
 
 # ============================================================
-# 2. PAGE SUMMARY
+# 3. DYNAMIC COLUMN DETECTION
 # ============================================================
-st.markdown("""
-### 📍 Property Map Overview
+def find_col(possible_names, columns):
+    """
+    Find a column in `columns` that matches any of the possible names,
+    ignoring case, spaces, punctuation, and hidden characters.
+    """
+    normalized = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in columns}
 
-This interactive map provides a geographic view of your entire portfolio, allowing you to quickly understand how each property is performing across key utility and efficiency metrics. Each point on the map represents a property, and the available layers help you visualize spend, usage, efficiency, occupancy, and outlier behavior in a single, unified view.
+    for name in possible_names:
+        key = re.sub(r"[^a-z0-9]", "", name.lower())
+        if key in normalized:
+            return normalized[key]
 
-**Purpose of the Map**  
-The map is designed to help you:
-- Identify geographic patterns in utility performance  
-- Compare properties visually across multiple metrics  
-- Spot regional inefficiencies or anomalies  
-- Understand how utility types (electric, gas, water) vary across locations  
+    return None
 
-**What You’re Looking At**  
-By default, all properties appear as neutral grey points to provide geographic context.  
-You can then toggle additional layers to reveal deeper insights:
+provider_cols = provider_df.columns.tolist()
 
-- **Spend Layer:** Bubble size shows total spend; color reflects utility type  
-- **Usage Layer:** Bubble size shows total usage; color reflects utility type  
-- **Efficiency Layer:** Color gradient highlights CPOR/CPAR performance  
-- **Occupancy Layer:** Color intensity reflects occupancy percentage  
-- **Outlier Layer:** Red outlines highlight statistically unusual properties  
+col_code = find_col(["Code"], provider_cols)
+col_address = find_col(["Address", "Street", "Address1"], provider_cols)
+col_city = find_col(["City", "Town", "Municipality"], provider_cols)
+col_state = find_col(["State", "Province"], provider_cols)
+col_zip = find_col(["Zip Code", "Zip", "Postal Code"], provider_cols)
+col_utility = find_col(["Utility"], provider_cols)
 
-Hover over any property to see key performance metrics.
-""")
+required = {
+    "Code": col_code,
+    "Address": col_address,
+    "City": col_city,
+    "State": col_state,
+    "Zip": col_zip,
+    "Utility": col_utility,
+}
 
-# ============================================================
-# 3. ENSURE REQUIRED LEDGER COLUMNS
-# ============================================================
-ledger_required = ["Property Name", "Provider Code", "Utility", "Year"]
-missing_ledger = [c for c in ledger_required if c not in df.columns]
-if missing_ledger:
-    st.error(f"Missing required columns in ledger for map: {', '.join(missing_ledger)}")
+missing = [k for k, v in required.items() if v is None]
+if missing:
+    st.error(f"Provider tab missing required columns: {', '.join(missing)}")
     st.stop()
 
-# ============================================================
-# 4. MERGE LEDGER WITH PROVIDER (Provider Code -> Code)
-# ============================================================
-provider_df = provider_df[provider_required].copy()
-merged = df.merge(
-    provider_df,
-    left_on="Provider Code",
-    right_on="Code",
-    how="left",
+# Rename dynamically
+provider_df = provider_df.rename(
+    columns={
+        col_code: "Code",
+        col_address: "Address",
+        col_city: "City",
+        col_state: "State",
+        col_zip: "Zip",
+        col_utility: "Utility",
+    }
 )
 
+# ============================================================
+# 4. MERGE LEDGER WITH PROVIDER (Provider Code → Code)
+# ============================================================
+if "Provider Code" not in df.columns:
+    st.error("Ledger missing 'Provider Code' column.")
+    st.stop()
+
+merged = df.merge(provider_df, left_on="Provider Code", right_on="Code", how="left")
+
 if merged["Address"].isna().all():
-    st.error("No address data found after merging ledger with Provider tab.")
+    st.error("No address data found after merging.")
     st.stop()
 
 # ============================================================
-# 5. AUTO-GEOCODING WITH LOCAL CACHE
+# 5. AUTO-GEOCODING WITH CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
@@ -118,22 +117,16 @@ if os.path.exists(CACHE_PATH):
 else:
     cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
 
-def geocode_address(address: str):
-    """Geocode using Nominatim (OpenStreetMap)."""
+def geocode_address(address):
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1}
     try:
-        r = requests.get(
-            url,
-            params=params,
-            timeout=10,
-            headers={"User-Agent": "streamlit-utility-map"},
-        )
+        r = requests.get(url, params=params, timeout=10, headers={"User-Agent": "streamlit-map"})
         r.raise_for_status()
         data = r.json()
         if data:
             return float(data[0]["lat"]), float(data[0]["lon"])
-    except Exception:
+    except:
         return None, None
     return None, None
 
@@ -144,7 +137,7 @@ merged["full_address"] = (
     + ", "
     + merged["State"].astype(str)
     + " "
-    + merged["Zip Code"].astype(str)
+    + merged["Zip"].astype(str)
 )
 
 merged = merged.merge(cache, on="Code", how="left")
@@ -152,18 +145,12 @@ merged = merged.merge(cache, on="Code", how="left")
 missing_geo = merged[merged["Latitude"].isna() | merged["Longitude"].isna()]
 
 if not missing_geo.empty:
-    st.info(f"Geocoding {len(missing_geo)} providers from Provider tab...")
+    st.info(f"Geocoding {len(missing_geo)} providers...")
 
     new_entries = []
     for _, row in missing_geo.iterrows():
         lat, lon = geocode_address(row["full_address"])
-        new_entries.append(
-            {
-                "Code": row["Code"],
-                "Latitude": lat,
-                "Longitude": lon,
-            }
-        )
+        new_entries.append({"Code": row["Code"], "Latitude": lat, "Longitude": lon})
 
     new_df = pd.DataFrame(new_entries)
     cache = pd.concat([cache, new_df], ignore_index=True)
@@ -176,7 +163,7 @@ if not missing_geo.empty:
 merged = merged.dropna(subset=["Latitude", "Longitude"])
 
 if merged.empty:
-    st.error("No valid coordinates available after geocoding.")
+    st.error("No valid coordinates available.")
     st.stop()
 
 # ============================================================
@@ -187,7 +174,6 @@ col_f1, col_f2 = st.columns(2)
 years = sorted(merged["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
-# Utility from ledger side (Utility_x after merge)
 utility_col = "Utility_x" if "Utility_x" in merged.columns else "Utility"
 utilities = ["All"] + sorted(merged[utility_col].dropna().unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
@@ -231,17 +217,13 @@ prop = f.groupby(
 
 prop.rename(columns={utility_col: "Utility"}, inplace=True)
 
-if prop.empty:
-    st.warning("No property-level data available after aggregation.")
-    st.stop()
-
 # ============================================================
 # 9. COLOR MAPPING
 # ============================================================
 utility_colors = {
-    "Electric": [255, 215, 0, 180],   # Yellow
-    "Gas": [30, 144, 255, 180],       # Blue
-    "Water": [32, 178, 170, 180],     # Teal
+    "Electric": [255, 215, 0, 180],
+    "Gas": [30, 144, 255, 180],
+    "Water": [32, 178, 170, 180],
 }
 
 prop["utility_color"] = prop["Utility"].apply(
@@ -272,24 +254,18 @@ if eff_metric:
     if vmin == vmax:
         vmin, vmax = 0, 1
     norm = (vals - vmin) / (vmax - vmin + 1e-9)
-    eff_colors = []
-    for n in norm:
-        r = int(255 * n)
-        g = int(255 * (1 - n))
-        eff_colors.append([r, g, 0, 200])
-    prop["eff_color"] = eff_colors
+    prop["eff_color"] = [
+        [int(255 * n), int(255 * (1 - n)), 0, 200] for n in norm
+    ]
 else:
     prop["eff_color"] = [[150, 150, 150, 0]] * len(prop)
 
 # Occupancy color
 if "Occupancy %" in prop.columns:
-    occ = prop["Occupancy %"].fillna(0)
-    occ_norm = (occ / 100).clip(0, 1)
-    occ_colors = []
-    for n in occ_norm:
-        b = int(255 * n)
-        occ_colors.append([50, 50, b, 200])
-    prop["occ_color"] = occ_colors
+    occ_norm = (prop["Occupancy %"].fillna(0) / 100).clip(0, 1)
+    prop["occ_color"] = [
+        [50, 50, int(255 * n), 200] for n in occ_norm
+    ]
 else:
     prop["occ_color"] = [[150, 150, 150, 0]] * len(prop)
 
@@ -321,28 +297,23 @@ Outlier: {outlier}
 
 prop["spend"] = (
     prop["$ Amount"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
-    if "$ Amount" in prop.columns
-    else "N/A"
+    if "$ Amount" in prop.columns else "N/A"
 )
 prop["usage"] = (
     prop["Usage"].map(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
-    if "Usage" in prop.columns
-    else "N/A"
+    if "Usage" in prop.columns else "N/A"
 )
 prop["cpor"] = (
     prop["CPOR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
-    if "CPOR" in prop.columns
-    else "N/A"
+    if "CPOR" in prop.columns else "N/A"
 )
 prop["cpar"] = (
     prop["CPAR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
-    if "CPAR" in prop.columns
-    else "N/A"
+    if "CPAR" in prop.columns else "N/A"
 )
 prop["occ"] = (
     prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
-    if "Occupancy %" in prop.columns
-    else "N/A"
+    if "Occupancy %" in prop.columns else "N/A"
 )
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 
@@ -351,7 +322,6 @@ prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 # ============================================================
 layers = []
 
-# Base layer
 layers.append(
     pdk.Layer(
         "ScatterplotLayer",
@@ -364,7 +334,6 @@ layers.append(
     )
 )
 
-# Spend layer
 if show_spend and "$ Amount" in prop.columns:
     layers.append(
         pdk.Layer(
@@ -378,7 +347,6 @@ if show_spend and "$ Amount" in prop.columns:
         )
     )
 
-# Usage layer
 if show_usage and "Usage" in prop.columns:
     layers.append(
         pdk.Layer(
@@ -392,7 +360,6 @@ if show_usage and "Usage" in prop.columns:
         )
     )
 
-# Efficiency layer
 if show_eff and eff_metric:
     layers.append(
         pdk.Layer(
@@ -406,7 +373,6 @@ if show_eff and eff_metric:
         )
     )
 
-# Occupancy layer
 if show_occ and "Occupancy %" in prop.columns:
     layers.append(
         pdk.Layer(
@@ -420,7 +386,6 @@ if show_occ and "Occupancy %" in prop.columns:
         )
     )
 
-# Outlier layer
 if show_outliers and prop["is_outlier"].any():
     layers.append(
         pdk.Layer(
@@ -441,12 +406,9 @@ if show_outliers and prop["is_outlier"].any():
 # ============================================================
 # 12. VIEW STATE
 # ============================================================
-center_lat = prop["Latitude"].mean()
-center_lon = prop["Longitude"].mean()
-
 view_state = pdk.ViewState(
-    latitude=center_lat,
-    longitude=center_lon,
+    latitude=prop["Latitude"].mean(),
+    longitude=prop["Longitude"].mean(),
     zoom=4,
     pitch=0,
     bearing=0,
@@ -463,10 +425,3 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
-
-st.markdown("""
-**How to use this map:**  
-- Use the filters above to change the year and utility view.  
-- Toggle layers to explore spend, usage, efficiency, occupancy, and outliers.  
-- Hover over any property to see key performance metrics.
-""")
