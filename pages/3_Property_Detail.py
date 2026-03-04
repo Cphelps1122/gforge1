@@ -25,6 +25,45 @@ if "Month_Num" not in df.columns and "Billing Date" in df.columns:
 st.title("🏨 Property Energy Detail")
 
 # -----------------------------
+# INFO POPUP (KEY / LEGEND)
+# -----------------------------
+with st.expander("ℹ️ Key / Definitions"):
+    st.markdown("""
+### **Metric Definitions**
+
+**MoM% (Month-over-Month Percent Change)**  
+How much a metric changed compared to the previous month.  
+- Positive = increase  
+- Negative = decrease  
+- Large swings (>30%) may indicate issues or seasonal patterns.
+
+**Z-Score (Statistical Outlier Score)**  
+Measures how unusual a value is compared to the property's normal pattern.  
+- 0 = normal  
+- ±1 = mild deviation  
+- ±2 = significant anomaly  
+- ±3 = extreme anomaly  
+
+**CPOR (Cost per Occupied Room)**  
+Spend divided by occupied rooms. Measures efficiency.
+
+**CPAR (Cost per Available Room)**  
+Spend divided by total rooms. Good for comparing properties of different sizes.
+
+**Cost per Unit**  
+Spend divided by usage. Shows utility rate efficiency.
+
+**Usage per Occupied Room**  
+How much utility is consumed per room actually used.
+
+**Billing Health Terms**  
+- **Missing Month**: No bill recorded for that month  
+- **Duplicate Bill**: More than one bill for the same utility/month  
+- **Zero Usage**: Bill shows usage = 0 (possible meter issue)  
+- **Zero Spend**: Bill shows cost = 0 (possible billing error)
+""")
+
+# -----------------------------
 # FILTERS
 # -----------------------------
 col1, col2 = st.columns(2)
@@ -165,7 +204,6 @@ st.subheader("Billing Health Check")
 health_msgs = []
 
 if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
-    # Work only on selected years
     bh = f.dropna(subset=["Billing Date", "Year", "Month_Num"]).copy()
     if not bh.empty:
         years_in_scope = sorted(bh["Year"].unique())
@@ -182,7 +220,6 @@ if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
             if missing:
                 missing_by_year[y] = missing
 
-            # duplicates: same year + month + utility more than once
             dup = (
                 sub.groupby(["Year", "Month_Num", "Utility"])
                 .size()
@@ -221,11 +258,17 @@ else:
     st.info("Billing date/year/month information not sufficient for health check.")
 
 # -----------------------------
-# ANOMALY DETECTION
+# ANOMALY DETECTION + SUMMARY
 # -----------------------------
 st.subheader("Anomaly Detection (Spend & Usage)")
 
 anomaly_rows = []
+anomaly_summary = {
+    "spend_spikes": 0,
+    "usage_spikes": 0,
+    "spend_drops": 0,
+    "usage_drops": 0,
+}
 
 if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
     agg_cols = []
@@ -252,7 +295,6 @@ if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
                 monthly[f"{col}_z"] = 0
 
         # MoM percent change
-        monthly = monthly.sort_values(["Year", "Month_Num"])
         monthly["date_key"] = pd.to_datetime(
             monthly["Year"].astype(str) + "-" + monthly["Month_Num"].astype(str) + "-01",
             errors="coerce",
@@ -262,12 +304,15 @@ if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
         for col in agg_cols:
             monthly[f"{col}_mom_pct"] = monthly[col].pct_change()
 
-        # Flag anomalies
+        # Flag anomalies + build summary
         for _, row in monthly.iterrows():
             for col in agg_cols:
                 z = row.get(f"{col}_z", 0)
                 mom = row.get(f"{col}_mom_pct", 0)
-                if abs(z) >= 2 or (pd.notna(mom) and abs(mom) >= 0.3):
+
+                is_anomaly = abs(z) >= 2 or (pd.notna(mom) and abs(mom) >= 0.3)
+
+                if is_anomaly:
                     anomaly_rows.append(
                         {
                             "Year": int(row["Year"]),
@@ -279,8 +324,44 @@ if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
                         }
                     )
 
+                    # Build summary counts
+                    if col == "$ Amount":
+                        if mom and mom > 0.3:
+                            anomaly_summary["spend_spikes"] += 1
+                        elif mom and mom < -0.3:
+                            anomaly_summary["spend_drops"] += 1
+                    if col == "Usage":
+                        if mom and mom > 0.3:
+                            anomaly_summary["usage_spikes"] += 1
+                        elif mom and mom < -0.3:
+                            anomaly_summary["usage_drops"] += 1
+
+# -----------------------------
+# ANOMALY SUMMARY NARRATIVE
+# -----------------------------
 if anomaly_rows:
-    st.write("Potential anomalies (statistical outliers or large month-over-month changes):")
+    st.markdown("### 🔍 Summary of Detected Anomalies")
+
+    summary_text = []
+
+    if anomaly_summary["spend_spikes"] > 0:
+        summary_text.append(f"- **Spend spikes detected:** {anomaly_summary['spend_spikes']} months")
+
+    if anomaly_summary["usage_spikes"] > 0:
+        summary_text.append(f"- **Usage spikes detected:** {anomaly_summary['usage_spikes']} months")
+
+    if anomaly_summary["spend_drops"] > 0:
+        summary_text.append(f"- **Spend drops detected:** {anomaly_summary['spend_drops']} months")
+
+    if anomaly_summary["usage_drops"] > 0:
+        summary_text.append(f"- **Usage drops detected:** {anomaly_summary['usage_drops']} months")
+
+    if not summary_text:
+        summary_text.append("- Anomalies detected, but no major spikes or drops.")
+
+    st.markdown("\n".join(summary_text))
+
+    st.write("### Detailed Anomaly Table")
     st.dataframe(pd.DataFrame(anomaly_rows))
 else:
     st.info("No significant anomalies detected based on current thresholds.")
