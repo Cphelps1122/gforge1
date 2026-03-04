@@ -104,6 +104,12 @@ k6.metric("YOY Usage Change", f"{yoy_usage:.1f}%" if yoy_usage else "N/A")
 k7.metric("YOY CPOR Change", f"{yoy_cpor:.1f}%" if yoy_cpor else "N/A")
 k8.metric("YOY CPAR Change", f"{yoy_cpar:.1f}%" if yoy_cpar else "N/A")
 
+st.markdown("""
+**What these KPIs show:**  
+These metrics summarize the overall performance of the portfolio for the selected year.  
+They highlight total spend, total usage, and average efficiency, along with year‑over‑year changes that reveal improvement or decline.
+""")
+
 # -----------------------------
 # METRIC SELECTION
 # -----------------------------
@@ -196,11 +202,16 @@ st.subheader("🚨 Properties Requiring Attention")
 
 if outlier_rows:
     st.dataframe(pd.DataFrame(outlier_rows))
+    st.markdown("""
+**What this table shows:**  
+These properties have efficiency values that fall far outside the portfolio’s normal range.  
+High Z‑scores indicate unusual behavior that may require investigation, such as leaks, equipment issues, or billing anomalies.
+""")
 else:
     st.info("No strong outliers detected.")
 
 # -----------------------------
-# UTILITY-LEVEL BENCHMARKING (NOW FOURTH + LINE GRAPHS)
+# UTILITY-LEVEL BENCHMARKING (FOURTH — LINE GRAPH)
 # -----------------------------
 st.subheader("🔌 Utility-Level Benchmarking (Line Trends)")
 
@@ -224,13 +235,19 @@ if {"Utility", "Month_Num", selected_metric}.issubset(f.columns):
             .properties(height=350)
         )
         st.altair_chart(chart_util_line, use_container_width=True)
+
+        st.markdown("""
+**What this graph shows:**  
+This line chart compares how each utility’s efficiency changes month‑to‑month across the selected year.  
+It highlights seasonal patterns, spikes, or dips in performance and helps identify which utilities are driving cost or usage changes across the portfolio.
+""")
     else:
         st.info("No utility-level data available for line benchmarking.")
 else:
     st.info("Utility-level benchmarking requires Utility, Month_Num, and the selected metric.")
 
 # -----------------------------
-# PORTFOLIO EFFICIENCY RANKING (NOW A COMBINED LINE GRAPH)
+# PORTFOLIO EFFICIENCY TREND (LINE GRAPH)
 # -----------------------------
 st.subheader("🏅 Portfolio Efficiency Trend (All Properties)")
 
@@ -256,7 +273,11 @@ if {"Property Name", "Month_Num", selected_metric}.issubset(f.columns):
         )
         st.altair_chart(chart_trend, use_container_width=True)
 
-        st.markdown("Each line represents a property. This shows how efficiency changes month‑to‑month across the portfolio.")
+        st.markdown("""
+**What this graph shows:**  
+Each line represents a property’s performance for the selected metric across all months of the year.  
+This makes it easy to see which properties trend together, which diverge, and where efficiency improves or declines over time.
+""")
     else:
         st.info("No data available to build the portfolio trend line chart.")
 else:
@@ -303,6 +324,13 @@ for prop_name, group in f.groupby("Property Name"):
 
 st.dataframe(pd.DataFrame(score_rows))
 
+st.markdown("""
+**What this table shows:**  
+Each property receives a grade for every major efficiency metric.  
+Grades are based on how the property compares to the portfolio average.  
+This creates a simple, intuitive performance profile for each asset.
+""")
+
 # -----------------------------
 # SCATTERPLOTS
 # -----------------------------
@@ -329,6 +357,13 @@ with scatter_cols[0]:
             .properties(height=350)
         )
         st.altair_chart(chart_scatter1, use_container_width=True)
+
+        st.markdown("""
+**What this graph shows:**  
+This scatterplot compares total usage to total spend for each property.  
+Properties in the upper‑right corner use more and spend more, while those lower‑left use less and spend less.  
+Outliers may indicate inefficiencies, leaks, or unusually high utility rates.
+""")
     else:
         st.info("Spend vs Usage scatterplot unavailable.")
 
@@ -351,6 +386,13 @@ with scatter_cols[1]:
             .properties(height=350)
         )
         st.altair_chart(chart_scatter2, use_container_width=True)
+
+        st.markdown("""
+**What this graph shows:**  
+This chart compares two key efficiency metrics: CPOR (cost per occupied room) and CPAR (cost per available room).  
+Properties toward the top‑right are less efficient, while those toward the bottom‑left are more efficient.  
+Clusters show similar performance groups; outliers highlight properties needing attention.
+""")
     else:
         st.info("CPOR/CPAR scatterplot unavailable.")
 
@@ -391,6 +433,12 @@ if heat_rows:
         .properties(height=500)
     )
     st.altair_chart(chart_heat, use_container_width=True)
+
+    st.markdown("""
+**What this graph shows:**  
+This heatmap compares all properties across multiple efficiency metrics at once.  
+Green indicates better performance; red indicates worse performance.  
+It provides a quick, at‑a‑glance view of which properties are strong performers and which ones may require deeper investigation.
+""")
 else:
     st.info("Not enough data for heatmap.")
-
