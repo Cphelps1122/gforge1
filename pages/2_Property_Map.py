@@ -44,8 +44,8 @@ if provider_df is None or provider_df.empty:
 # ============================================================
 # 3. AUTO-DETECT PROVIDER COLUMNS
 # ============================================================
-def normalize(col):
-    """Normalize a column name by removing all non-alphanumeric characters."""
+def normalize(col: str) -> str:
+    """Normalize a column name by removing all non-alphanumeric characters and lowering."""
     return re.sub(r"[^a-z0-9]", "", col.lower())
 
 provider_df.columns = provider_df.columns.str.strip()
@@ -102,6 +102,12 @@ if merged["Address"].isna().all():
     st.error("No address data found after merging.")
     st.stop()
 
+# Ensure required provider columns exist after merge
+for col in ["Address", "City", "State", "Zip"]:
+    if col not in merged.columns:
+        st.error(f"Column '{col}' missing after merge. Actual columns: {list(merged.columns)}")
+        st.stop()
+
 # ============================================================
 # 5. AUTO-GEOCODING WITH CACHE
 # ============================================================
@@ -113,23 +119,28 @@ if os.path.exists(CACHE_PATH):
 else:
     cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
 
-def geocode_address(address):
+def geocode_address(address: str):
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1}
     try:
-        r = requests.get(url, params=params, timeout=10, headers={"User-Agent": "streamlit-map"})
+        r = requests.get(
+            url,
+            params=params,
+            timeout=10,
+            headers={"User-Agent": "streamlit-property-map"},
+        )
         r.raise_for_status()
         data = r.json()
         if data:
             return float(data[0]["lat"]), float(data[0]["lon"])
-    except:
+    except Exception:
         return None, None
     return None, None
 
+# Build full address
 merged["full_address"] = (
     merged["Address"].astype(str)
     + ", "
-    st.write("MERGED COLUMNS:", list(merged.columns))
     + merged["City"].astype(str)
     + ", "
     + merged["State"].astype(str)
@@ -137,6 +148,7 @@ merged["full_address"] = (
     + merged["Zip"].astype(str)
 )
 
+# Attach cached coordinates
 merged = merged.merge(cache, on="Code", how="left")
 
 missing_geo = merged[merged["Latitude"].isna() | merged["Longitude"].isna()]
@@ -164,14 +176,33 @@ if merged.empty:
     st.stop()
 
 # ============================================================
-# 6. FILTERS
+# 6. PAGE SUMMARY
+# ============================================================
+st.markdown("""
+### 📍 Property Map Overview
+
+This interactive map provides a geographic view of your entire portfolio, allowing you to quickly understand how each property is performing across key utility and efficiency metrics.
+
+Each point on the map represents a property. Layers let you visualize spend, usage, efficiency, occupancy, and outlier behavior in a single view.
+""")
+
+# ============================================================
+# 7. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
+
+if "Year" not in merged.columns:
+    st.error("Ledger missing 'Year' column.")
+    st.stop()
 
 years = sorted(merged["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
 utility_col = "Utility_x" if "Utility_x" in merged.columns else "Utility"
+if utility_col not in merged.columns:
+    st.error("No 'Utility' column found after merge.")
+    st.stop()
+
 utilities = ["All"] + sorted(merged[utility_col].dropna().unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
@@ -184,7 +215,7 @@ if f.empty:
     st.stop()
 
 # ============================================================
-# 7. LAYER TOGGLES
+# 8. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -196,7 +227,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 8. AGGREGATE TO PROPERTY LEVEL
+# 9. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -207,15 +238,21 @@ for col in ["CPOR", "CPAR", "Occupancy %"]:
     if col in f.columns:
         agg_cols[col] = "mean"
 
-prop = f.groupby(
-    ["Property Name", "Latitude", "Longitude", utility_col],
-    as_index=False,
-).agg(agg_cols)
+group_cols = ["Property Name", "Latitude", "Longitude", utility_col]
+for gc in group_cols:
+    if gc not in f.columns:
+        st.error(f"Required grouping column '{gc}' missing in filtered data.")
+        st.stop()
 
+prop = f.groupby(group_cols, as_index=False).agg(agg_cols)
 prop.rename(columns={utility_col: "Utility"}, inplace=True)
 
+if prop.empty:
+    st.warning("No property-level data available after aggregation.")
+    st.stop()
+
 # ============================================================
-# 9. COLOR MAPPING
+# 10. COLOR MAPPING & METRICS
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],
@@ -226,7 +263,6 @@ utility_colors = {
 prop["utility_color"] = prop["Utility"].apply(
     lambda u: utility_colors.get(u, [200, 200, 200, 180])
 )
-
 prop["base_color"] = [[160, 160, 160, 140]] * len(prop)
 
 # Spend radius
@@ -275,23 +311,7 @@ if eff_metric:
         z = (prop[eff_metric] - m) / s
         prop["is_outlier"] = z.abs() >= 2
 
-# ============================================================
-# 10. TOOLTIP
-# ============================================================
-tooltip = {
-    "html": """
-<b>{Property Name}</b><br/>
-Utility: {Utility}<br/>
-Spend: {spend}<br/>
-Usage: {usage}<br/>
-CPOR: {cpor}<br/>
-CPAR: {cpar}<br/>
-Occupancy: {occ}<br/>
-Outlier: {outlier}
-""",
-    "style": {"backgroundColor": "rgba(0, 0, 0, 0.8)", "color": "white"},
-}
-
+# Tooltip fields
 prop["spend"] = (
     prop["$ Amount"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
     if "$ Amount" in prop.columns else "N/A"
@@ -313,6 +333,20 @@ prop["occ"] = (
     if "Occupancy %" in prop.columns else "N/A"
 )
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
+
+tooltip = {
+    "html": """
+<b>{Property Name}</b><br/>
+Utility: {Utility}<br/>
+Spend: {spend}<br/>
+Usage: {usage}<br/>
+CPOR: {cpor}<br/>
+CPAR: {cpar}<br/>
+Occupancy: {occ}<br/>
+Outlier: {outlier}
+""",
+    "style": {"backgroundColor": "rgba(0, 0, 0, 0.8)", "color": "white"},
+}
 
 # ============================================================
 # 11. BUILD LAYERS
@@ -401,7 +435,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 12. VIEW STATE
+# 12. VIEW STATE & RENDER
 # ============================================================
 view_state = pdk.ViewState(
     latitude=prop["Latitude"].mean(),
@@ -411,9 +445,6 @@ view_state = pdk.ViewState(
     bearing=0,
 )
 
-# ============================================================
-# 13. RENDER MAP
-# ============================================================
 deck = pdk.Deck(
     map_style="mapbox://styles/mapbox/dark-v10",
     initial_view_state=view_state,
@@ -422,4 +453,3 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
-
