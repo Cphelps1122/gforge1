@@ -3,8 +3,6 @@ import pandas as pd
 import pydeck as pdk
 import requests
 import os
-import glob
-import re
 
 from utils.load_data import load_property_ledger
 
@@ -20,28 +18,25 @@ if df is None or df.empty:
 
 df.columns = df.columns.str.strip()
 
-# ============================================================
-# 2. AUTO-DETECT FULL ADDRESS COLUMN
-# ============================================================
-def normalize(col):
-    return re.sub(r"[^a-z0-9]", "", col.lower())
-
-normalized_map = {normalize(c): c for c in df.columns}
-
-full_addr_col = None
-for candidate in ["fulladdress", "full_address", "full address"]:
-    if candidate in normalized_map:
-        full_addr_col = normalized_map[candidate]
-        break
-
-if full_addr_col is None:
-    st.error(f"Could not find a Full Address column. Columns found: {list(df.columns)}")
+required_cols = ["Property Name", "City", "State", "Zip Code"]
+missing = [c for c in required_cols if c not in df.columns]
+if missing:
+    st.error(f"Raw Data missing required columns: {', '.join(missing)}")
     st.stop()
 
-df = df.rename(columns={full_addr_col: "Full Address"})
+# Build full address from known pieces
+df["full_address"] = (
+    df["Property Name"].astype(str)
+    + ", "
+    + df["City"].astype(str)
+    + ", "
+    + df["State"].astype(str)
+    + " "
+    + df["Zip Code"].astype(str)
+)
 
 # ============================================================
-# 3. GEOCODING CACHE
+# 2. GEOCODING CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
@@ -49,13 +44,18 @@ if os.path.exists(CACHE_PATH):
     cache = pd.read_csv(CACHE_PATH)
     cache.columns = cache.columns.str.strip()
 else:
-    cache = pd.DataFrame(columns=["Full Address", "Latitude", "Longitude"])
+    cache = pd.DataFrame(columns=["full_address", "Latitude", "Longitude"])
 
 def geocode_address(address: str):
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1}
     try:
-        r = requests.get(url, params=params, timeout=10, headers={"User-Agent": "streamlit-map"})
+        r = requests.get(
+            url,
+            params=params,
+            timeout=10,
+            headers={"User-Agent": "streamlit-property-map"},
+        )
         r.raise_for_status()
         data = r.json()
         if data:
@@ -65,30 +65,28 @@ def geocode_address(address: str):
     return None, None
 
 # Attach cached coordinates
-df = df.merge(cache, on="Full Address", how="left")
+df = df.merge(cache, on="full_address", how="left")
 
 # Geocode missing
 missing_geo = df[df["Latitude"].isna() | df["Longitude"].isna()]
 
 if not missing_geo.empty:
-    st.info(f"Geocoding {len(missing_geo)} addresses...")
+    st.info(f"Geocoding {len(missing_geo)} properties...")
 
     new_entries = []
     for _, row in missing_geo.iterrows():
-        lat, lon = geocode_address(row["Full Address"])
-        new_entries.append({
-            "Full Address": row["Full Address"],
-            "Latitude": lat,
-            "Longitude": lon
-        })
+        lat, lon = geocode_address(row["full_address"])
+        new_entries.append(
+            {"full_address": row["full_address"], "Latitude": lat, "Longitude": lon}
+        )
 
     new_df = pd.DataFrame(new_entries)
     cache = pd.concat([cache, new_df], ignore_index=True)
-    cache.drop_duplicates(subset=["Full Address"], keep="last", inplace=True)
+    cache.drop_duplicates(subset=["full_address"], keep="last", inplace=True)
     cache.to_csv(CACHE_PATH, index=False)
 
     df = df.drop(columns=["Latitude", "Longitude"], errors="ignore")
-    df = df.merge(cache, on="Full Address", how="left")
+    df = df.merge(cache, on="full_address", how="left")
 
 df = df.dropna(subset=["Latitude", "Longitude"])
 
@@ -97,7 +95,7 @@ if df.empty:
     st.stop()
 
 # ============================================================
-# 4. FILTERS
+# 3. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
 
@@ -120,7 +118,7 @@ if f.empty:
     st.stop()
 
 # ============================================================
-# 5. LAYER TOGGLES
+# 4. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -132,7 +130,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 6. AGGREGATE TO PROPERTY LEVEL
+# 5. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -150,7 +148,7 @@ if "Utility" in f.columns:
 prop = f.groupby(group_cols, as_index=False).agg(agg_cols)
 
 # ============================================================
-# 7. COLOR MAPPING
+# 6. COLOR MAPPING
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],
@@ -158,9 +156,11 @@ utility_colors = {
     "Water": [32, 178, 170, 180],
 }
 
-prop["utility_color"] = prop["Utility"].apply(
-    lambda u: utility_colors.get(u, [200, 200, 200, 180])
-) if "Utility" in prop.columns else [[200, 200, 200, 180]] * len(prop)
+prop["utility_color"] = (
+    prop["Utility"].apply(lambda u: utility_colors.get(u, [200, 200, 200, 180]))
+    if "Utility" in prop.columns
+    else [[200, 200, 200, 180]] * len(prop)
+)
 
 prop["base_color"] = [[160, 160, 160, 140]] * len(prop)
 
@@ -213,23 +213,28 @@ if eff_metric:
 # Tooltip fields
 prop["spend"] = (
     prop["$ Amount"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
-    if "$ Amount" in prop.columns else "N/A"
+    if "$ Amount" in prop.columns
+    else "N/A"
 )
 prop["usage"] = (
     prop["Usage"].map(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
-    if "Usage" in prop.columns else "N/A"
+    if "Usage" in prop.columns
+    else "N/A"
 )
 prop["cpor"] = (
     prop["CPOR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
-    if "CPOR" in prop.columns else "N/A"
+    if "CPOR" in prop.columns
+    else "N/A"
 )
 prop["cpar"] = (
     prop["CPAR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
-    if "CPAR" in prop.columns else "N/A"
+    if "CPAR" in prop.columns
+    else "N/A"
 )
 prop["occ"] = (
     prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
-    if "Occupancy %" in prop.columns else "N/A"
+    if "Occupancy %" in prop.columns
+    else "N/A"
 )
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 
@@ -248,7 +253,7 @@ Outlier: {outlier}
 }
 
 # ============================================================
-# 8. BUILD LAYERS
+# 7. BUILD LAYERS
 # ============================================================
 layers = []
 
@@ -334,7 +339,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 9. RENDER MAP
+# 8. RENDER MAP
 # ============================================================
 view_state = pdk.ViewState(
     latitude=prop["Latitude"].mean(),
