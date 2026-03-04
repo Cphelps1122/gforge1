@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+
 from utils.load_data import load_property_ledger
 
 # -----------------------------
@@ -12,15 +13,20 @@ if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
-# Ensure Billing Date is datetime
-df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
+if "Billing Date" in df.columns:
+    df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
 st.title("📊 Portfolio Benchmarking")
 
 # -----------------------------
-# METRIC SELECTOR
+# FILTERS
 # -----------------------------
-metric = st.selectbox(
+col1, col2 = st.columns(2)
+
+years = sorted(df["Year"].dropna().unique()) if "Year" in df.columns else []
+selected_year = col1.selectbox("Year", years if years else [None])
+
+metric = col2.selectbox(
     "Benchmark Metric",
     [
         "CPOR",                      # Cost per Occupied Room
@@ -31,16 +37,27 @@ metric = st.selectbox(
     ],
 )
 
+f = df.copy()
+if selected_year is not None:
+    f = f[f["Year"] == selected_year]
+
+if f.empty:
+    st.warning("No data available for the selected year.")
+    st.stop()
+
 # -----------------------------
 # COMPUTE BENCHMARK VALUES
 # -----------------------------
-# Use the last 3 months of data for each property
-latest = df.sort_values("Billing Date").groupby("Property Name").tail(3)
+bench = (
+    f.groupby("Property Name", as_index=False)[metric]
+    .mean()
+    .dropna(subset=[metric])
+)
 
-# Compute mean of selected metric
-bench = latest.groupby("Property Name", as_index=False)[metric].mean()
+if bench.empty:
+    st.warning("No valid benchmark data for this metric/year.")
+    st.stop()
 
-# Sort ascending (best performers first)
 bench = bench.sort_values(metric, ascending=True)
 
 # -----------------------------
