@@ -3,6 +3,7 @@ import pandas as pd
 import pydeck as pdk
 import requests
 import os
+import re
 
 from utils.load_data import load_property_ledger
 
@@ -18,13 +19,52 @@ if df is None or df.empty:
 
 df.columns = df.columns.str.strip()
 
-required_cols = ["Property Name", "City", "State", "Zip Code"]
-missing = [c for c in required_cols if c not in df.columns]
+# ============================================================
+# 2. AUTO-DETECT REQUIRED ADDRESS COLUMNS
+# ============================================================
+def normalize(col):
+    return re.sub(r"[^a-z0-9]", "", col.lower())
+
+normalized_map = {normalize(c): c for c in df.columns}
+
+# Detect Property Name
+col_property = normalized_map.get("propertyname")
+
+# Detect City
+col_city = normalized_map.get("city")
+
+# Detect State
+col_state = normalized_map.get("state")
+
+# Detect ZIP Code (many possible spellings)
+zip_candidates = ["zipcode", "zip", "zipcodes", "postalcode", "postalcode"]
+col_zip = None
+for z in zip_candidates:
+    if z in normalized_map:
+        col_zip = normalized_map[z]
+        break
+
+missing = []
+if col_property is None: missing.append("Property Name")
+if col_city is None:     missing.append("City")
+if col_state is None:    missing.append("State")
+if col_zip is None:      missing.append("ZIP Code")
+
 if missing:
     st.error(f"Raw Data missing required columns: {', '.join(missing)}")
     st.stop()
 
-# Build full address from known pieces
+# Rename to standard names
+df = df.rename(columns={
+    col_property: "Property Name",
+    col_city: "City",
+    col_state: "State",
+    col_zip: "ZIP Code"
+})
+
+# ============================================================
+# 3. BUILD FULL ADDRESS
+# ============================================================
 df["full_address"] = (
     df["Property Name"].astype(str)
     + ", "
@@ -32,11 +72,11 @@ df["full_address"] = (
     + ", "
     + df["State"].astype(str)
     + " "
-    + df["Zip Code"].astype(str)
+    + df["ZIP Code"].astype(str)
 )
 
 # ============================================================
-# 2. GEOCODING CACHE
+# 4. GEOCODING CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
@@ -95,7 +135,7 @@ if df.empty:
     st.stop()
 
 # ============================================================
-# 3. FILTERS
+# 5. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
 
@@ -118,7 +158,7 @@ if f.empty:
     st.stop()
 
 # ============================================================
-# 4. LAYER TOGGLES
+# 6. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -130,7 +170,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 5. AGGREGATE TO PROPERTY LEVEL
+# 7. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -148,7 +188,7 @@ if "Utility" in f.columns:
 prop = f.groupby(group_cols, as_index=False).agg(agg_cols)
 
 # ============================================================
-# 6. COLOR MAPPING
+# 8. COLOR MAPPING
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],
@@ -253,7 +293,7 @@ Outlier: {outlier}
 }
 
 # ============================================================
-# 7. BUILD LAYERS
+# 9. BUILD LAYERS
 # ============================================================
 layers = []
 
@@ -339,7 +379,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 8. RENDER MAP
+# 10. RENDER MAP
 # ============================================================
 view_state = pdk.ViewState(
     latitude=prop["Latitude"].mean(),
