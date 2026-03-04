@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
+import requests
+import os
 
 from utils.load_data import load_property_ledger
 
-# -----------------------------
-# LOAD DATA
-# -----------------------------
+# ============================================================
+# 1. LOAD DATA
+# ============================================================
 df, month_order = load_property_ledger()
 
 st.title("📍 Property Map")
@@ -15,25 +17,9 @@ if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
-# Basic column checks
-required_cols = ["Property Name", "Latitude", "Longitude", "Utility", "Year"]
-missing = [c for c in required_cols if c not in df.columns]
-if missing:
-    st.error(f"Missing required columns for map: {', '.join(missing)}")
-    st.stop()
-
-# Ensure numeric lat/lon
-df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
-df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
-df = df.dropna(subset=["Latitude", "Longitude"])
-
-if df.empty:
-    st.error("No valid latitude/longitude values found for properties.")
-    st.stop()
-
-# -----------------------------
-# PAGE SUMMARY
-# -----------------------------
+# ============================================================
+# 2. PAGE SUMMARY
+# ============================================================
 st.markdown("""
 ### 📍 Property Map Overview
 
@@ -56,12 +42,85 @@ You can then toggle additional layers to reveal deeper insights:
 - **Occupancy Layer:** Color intensity reflects occupancy percentage  
 - **Outlier Layer:** Red outlines highlight statistically unusual properties  
 
-Hovering over any property displays key KPIs for quick interpretation.
+Hover over any property to see key performance metrics.
 """)
 
-# -----------------------------
-# FILTERS
-# -----------------------------
+# ============================================================
+# 3. ENSURE REQUIRED COLUMNS
+# ============================================================
+required_cols = ["Property Name", "Address", "City", "State", "Utility", "Year"]
+missing = [c for c in required_cols if c not in df.columns]
+if missing:
+    st.error(f"Missing required columns for map: {', '.join(missing)}")
+    st.stop()
+
+# ============================================================
+# 4. AUTO-GEOCODING WITH LOCAL CACHE
+# ============================================================
+CACHE_PATH = "data/geocode_cache.csv"
+
+# Load cache if exists
+if os.path.exists(CACHE_PATH):
+    cache = pd.read_csv(CACHE_PATH)
+else:
+    cache = pd.DataFrame(columns=["Property Name", "Latitude", "Longitude"])
+
+def geocode_address(address):
+    """Geocode using Nominatim (OpenStreetMap)."""
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": address, "format": "json", "limit": 1}
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+    except:
+        return None, None
+    return None, None
+
+# Build full address
+df["full_address"] = (
+    df["Address"].astype(str) + ", " +
+    df["City"].astype(str) + ", " +
+    df["State"].astype(str)
+)
+
+# Merge with cache
+df = df.merge(cache, on="Property Name", how="left")
+
+# Geocode missing entries
+missing_geo = df[df["Latitude"].isna() | df["Longitude"].isna()]
+
+if not missing_geo.empty:
+    st.info(f"Geocoding {len(missing_geo)} properties...")
+
+    new_entries = []
+    for _, row in missing_geo.iterrows():
+        lat, lon = geocode_address(row["full_address"])
+        new_entries.append({
+            "Property Name": row["Property Name"],
+            "Latitude": lat,
+            "Longitude": lon
+        })
+
+    new_df = pd.DataFrame(new_entries)
+    cache = pd.concat([cache, new_df], ignore_index=True)
+    cache.to_csv(CACHE_PATH, index=False)
+
+    df = df.drop(columns=["Latitude", "Longitude"], errors="ignore")
+    df = df.merge(cache, on="Property Name", how="left")
+
+# Drop rows still missing coordinates
+df = df.dropna(subset=["Latitude", "Longitude"])
+
+if df.empty:
+    st.error("No valid coordinates available after geocoding.")
+    st.stop()
+
+# ============================================================
+# 5. FILTERS
+# ============================================================
 col_f1, col_f2 = st.columns(2)
 
 years = sorted(df["Year"].dropna().unique())
@@ -78,9 +137,9 @@ if f.empty:
     st.warning("No data available for the selected filters.")
     st.stop()
 
-# -----------------------------
-# LAYER TOGGLES
-# -----------------------------
+# ============================================================
+# 6. LAYER TOGGLES
+# ============================================================
 st.subheader("Map Layers")
 
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -90,10 +149,9 @@ show_eff = c3.checkbox("Efficiency", value=False)
 show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
-# -----------------------------
-# PREP METRICS
-# -----------------------------
-# Aggregate to property level
+# ============================================================
+# 7. AGGREGATE TO PROPERTY LEVEL
+# ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
     agg_cols["$ Amount"] = "sum"
@@ -108,19 +166,19 @@ prop = f.groupby(
     as_index=False
 ).agg(agg_cols)
 
-# Utility color mapping
+# ============================================================
+# 8. COLOR MAPPING
+# ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],   # Yellow
     "Gas": [30, 144, 255, 180],       # Blue
     "Water": [32, 178, 170, 180],     # Teal
 }
 
-def get_utility_color(u):
-    return utility_colors.get(u, [200, 200, 200, 180])
+prop["utility_color"] = prop["Utility"].apply(
+    lambda u: utility_colors.get(u, [200, 200, 200, 180])
+)
 
-prop["utility_color"] = prop["Utility"].apply(get_utility_color)
-
-# Base grey color
 prop["base_color"] = [[160, 160, 160, 140]] * len(prop)
 
 # Spend radius
@@ -137,7 +195,7 @@ if "Usage" in prop.columns:
 else:
     prop["usage_radius"] = 0
 
-# Efficiency color (CPOR/CPAR)
+# Efficiency color
 eff_metric = "CPOR" if "CPOR" in prop.columns else ("CPAR" if "CPAR" in prop.columns else None)
 if eff_metric:
     vals = prop[eff_metric].copy()
@@ -145,7 +203,6 @@ if eff_metric:
     if vmin == vmax:
         vmin, vmax = 0, 1
     norm = (vals - vmin) / (vmax - vmin + 1e-9)
-    # Green (good) to Red (bad)
     eff_colors = []
     for n in norm:
         r = int(255 * n)
@@ -155,7 +212,7 @@ if eff_metric:
 else:
     prop["eff_color"] = [[150, 150, 150, 0]] * len(prop)
 
-# Occupancy color (blue intensity)
+# Occupancy color
 if "Occupancy %" in prop.columns:
     occ = prop["Occupancy %"].fillna(0)
     occ_norm = (occ / 100).clip(0, 1)
@@ -167,7 +224,7 @@ if "Occupancy %" in prop.columns:
 else:
     prop["occ_color"] = [[150, 150, 150, 0]] * len(prop)
 
-# Outlier flag (based on CPOR/CPAR z-score)
+# Outlier flag
 prop["is_outlier"] = False
 if eff_metric:
     m = prop[eff_metric].mean()
@@ -176,9 +233,9 @@ if eff_metric:
         z = (prop[eff_metric] - m) / s
         prop["is_outlier"] = z.abs() >= 2
 
-# -----------------------------
-# TOOLTIP
-# -----------------------------
+# ============================================================
+# 9. TOOLTIP
+# ============================================================
 tooltip = {
     "html": """
 <b>{Property Name}</b><br/>
@@ -200,95 +257,101 @@ prop["cpar"] = prop["CPAR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
 prop["occ"] = prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A") if "Occupancy %" in prop.columns else "N/A"
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 
-# -----------------------------
-# LAYERS
-# -----------------------------
+# ============================================================
+# 10. BUILD LAYERS
+# ============================================================
 layers = []
 
-# Base layer: all properties as grey points
-base_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=prop,
-    get_position=["Longitude", "Latitude"],
-    get_radius=4000,
-    get_fill_color="base_color",
-    pickable=True,
-    opacity=0.6,
+# Base layer
+layers.append(
+    pdk.Layer(
+        "ScatterplotLayer",
+        data=prop,
+        get_position=["Longitude", "Latitude"],
+        get_radius=4000,
+        get_fill_color="base_color",
+        pickable=True,
+        opacity=0.6,
+    )
 )
-layers.append(base_layer)
 
 # Spend layer
 if show_spend and "$ Amount" in prop.columns:
-    spend_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=prop[prop["$ Amount"] > 0],
-        get_position=["Longitude", "Latitude"],
-        get_radius="spend_radius",
-        get_fill_color="utility_color",
-        pickable=True,
-        opacity=0.5,
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=prop[prop["$ Amount"] > 0],
+            get_position=["Longitude", "Latitude"],
+            get_radius="spend_radius",
+            get_fill_color="utility_color",
+            pickable=True,
+            opacity=0.5,
+        )
     )
-    layers.append(spend_layer)
 
 # Usage layer
 if show_usage and "Usage" in prop.columns:
-    usage_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=prop[prop["Usage"] > 0],
-        get_position=["Longitude", "Latitude"],
-        get_radius="usage_radius",
-        get_fill_color="utility_color",
-        pickable=True,
-        opacity=0.5,
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=prop[prop["Usage"] > 0],
+            get_position=["Longitude", "Latitude"],
+            get_radius="usage_radius",
+            get_fill_color="utility_color",
+            pickable=True,
+            opacity=0.5,
+        )
     )
-    layers.append(usage_layer)
 
 # Efficiency layer
 if show_eff and eff_metric:
-    eff_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=prop[pd.notna(prop[eff_metric])],
-        get_position=["Longitude", "Latitude"],
-        get_radius=6000,
-        get_fill_color="eff_color",
-        pickable=True,
-        opacity=0.7,
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=prop[pd.notna(prop[eff_metric])],
+            get_position=["Longitude", "Latitude"],
+            get_radius=6000,
+            get_fill_color="eff_color",
+            pickable=True,
+            opacity=0.7,
+        )
     )
-    layers.append(eff_layer)
 
 # Occupancy layer
 if show_occ and "Occupancy %" in prop.columns:
-    occ_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=prop[pd.notna(prop["Occupancy %"])],
-        get_position=["Longitude", "Latitude"],
-        get_radius=6000,
-        get_fill_color="occ_color",
-        pickable=True,
-        opacity=0.7,
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=prop[pd.notna(prop["Occupancy %"])],
+            get_position=["Longitude", "Latitude"],
+            get_radius=6000,
+            get_fill_color="occ_color",
+            pickable=True,
+            opacity=0.7,
+        )
     )
-    layers.append(occ_layer)
 
 # Outlier layer
 if show_outliers and prop["is_outlier"].any():
-    out_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=prop[prop["is_outlier"]],
-        get_position=["Longitude", "Latitude"],
-        get_radius=8000,
-        get_fill_color=[255, 0, 0, 0],
-        get_line_color=[255, 0, 0],
-        line_width_min_pixels=2,
-        stroked=True,
-        filled=False,
-        pickable=True,
-        opacity=0.9,
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=prop[prop["is_outlier"]],
+            get_position=["Longitude", "Latitude"],
+            get_radius=8000,
+            get_fill_color=[255, 0, 0, 0],
+            get_line_color=[255, 0, 0],
+            line_width_min_pixels=2,
+            stroked=True,
+            filled=False,
+            pickable=True,
+            opacity=0.9,
+        )
     )
-    layers.append(out_layer)
 
-# -----------------------------
-# VIEW STATE
-# -----------------------------
+# ============================================================
+# 11. VIEW STATE
+# ============================================================
 center_lat = prop["Latitude"].mean()
 center_lon = prop["Longitude"].mean()
 
@@ -300,9 +363,9 @@ view_state = pdk.ViewState(
     bearing=0,
 )
 
-# -----------------------------
-# RENDER MAP
-# -----------------------------
+# ============================================================
+# 12. RENDER MAP
+# ============================================================
 deck = pdk.Deck(
     map_style="mapbox://styles/mapbox/dark-v10",
     initial_view_state=view_state,
