@@ -42,38 +42,37 @@ if provider_df is None or provider_df.empty:
     st.stop()
 
 # ============================================================
-# 3. DYNAMIC COLUMN DETECTION
+# 3. AUTO-DETECT PROVIDER COLUMNS
 # ============================================================
-def find_col(possible_names, columns):
-    """
-    Find a column in `columns` that matches any of the possible names,
-    ignoring case, spaces, punctuation, and hidden characters.
-    """
-    normalized = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in columns}
+def normalize(col):
+    """Normalize a column name by removing all non-alphanumeric characters."""
+    return re.sub(r"[^a-z0-9]", "", col.lower())
 
+provider_df.columns = provider_df.columns.str.strip()
+normalized_map = {normalize(c): c for c in provider_df.columns}
+
+def find_col(possible_names):
+    """Return the actual column name matching any normalized candidate."""
     for name in possible_names:
-        key = re.sub(r"[^a-z0-9]", "", name.lower())
-        if key in normalized:
-            return normalized[key]
-
+        key = normalize(name)
+        if key in normalized_map:
+            return normalized_map[key]
     return None
 
-provider_cols = provider_df.columns.tolist()
-
-col_code = find_col(["Code"], provider_cols)
-col_address = find_col(["Address", "Street", "Address1"], provider_cols)
-col_city = find_col(["City", "Town", "Municipality"], provider_cols)
-col_state = find_col(["State", "Province"], provider_cols)
-col_zip = find_col(["Zip Code", "Zip", "Postal Code"], provider_cols)
-col_utility = find_col(["Utility"], provider_cols)
+col_code  = find_col(["Code"])
+col_addr  = find_col(["Address", "Street", "Address1"])
+col_city  = find_col(["City", "Town", "Municipality"])
+col_state = find_col(["State", "Province"])
+col_zip   = find_col(["Zip Code", "Zip", "Postal Code"])
+col_util  = find_col(["Utility"])
 
 required = {
     "Code": col_code,
-    "Address": col_address,
+    "Address": col_addr,
     "City": col_city,
     "State": col_state,
     "Zip": col_zip,
-    "Utility": col_utility,
+    "Utility": col_util,
 }
 
 missing = [k for k, v in required.items() if v is None]
@@ -81,17 +80,14 @@ if missing:
     st.error(f"Provider tab missing required columns: {', '.join(missing)}")
     st.stop()
 
-# Rename dynamically
-provider_df = provider_df.rename(
-    columns={
-        col_code: "Code",
-        col_address: "Address",
-        col_city: "City",
-        col_state: "State",
-        col_zip: "Zip",
-        col_utility: "Utility",
-    }
-)
+provider_df = provider_df.rename(columns={
+    col_code: "Code",
+    col_addr: "Address",
+    col_city: "City",
+    col_state: "State",
+    col_zip: "Zip",
+    col_util: "Utility",
+})
 
 # ============================================================
 # 4. MERGE LEDGER WITH PROVIDER (Provider Code → Code)
