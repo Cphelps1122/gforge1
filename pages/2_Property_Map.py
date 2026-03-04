@@ -23,7 +23,6 @@ def load_provider_tab():
     files = glob.glob("data/*.xlsx")
     if not files:
         return None
-    # Use the first Excel file in /data (same pattern as ledger)
     path = files[0]
     try:
         provider_df = pd.read_excel(path, sheet_name="Provider")
@@ -37,10 +36,17 @@ if provider_df is None or provider_df.empty:
     st.error("Could not load 'Provider' tab from the Excel file in /data.")
     st.stop()
 
-# Expecting these columns in Provider tab:
-# Code, Name of utility provider, Address, City, State, Zip Code
-required_provider_cols = ["Code", "Name of utility provider", "Address", "City", "State", "Zip Code"]
-missing_provider = [c for c in required_provider_cols if c not in provider_df.columns]
+# Expected columns in Provider tab
+provider_required = [
+    "Code",
+    "Name of utility provider",
+    "Address",
+    "City",
+    "State",
+    "Zip Code",
+    "Utility",
+]
+missing_provider = [c for c in provider_required if c not in provider_df.columns]
 if missing_provider:
     st.error(f"Provider tab is missing required columns: {', '.join(missing_provider)}")
     st.stop()
@@ -76,17 +82,22 @@ Hover over any property to see key performance metrics.
 # ============================================================
 # 3. ENSURE REQUIRED LEDGER COLUMNS
 # ============================================================
-required_ledger_cols = ["Property Name", "Code", "Utility", "Year"]
-missing_ledger = [c for c in required_ledger_cols if c not in df.columns]
+ledger_required = ["Property Name", "Provider Code", "Utility", "Year"]
+missing_ledger = [c for c in ledger_required if c not in df.columns]
 if missing_ledger:
     st.error(f"Missing required columns in ledger for map: {', '.join(missing_ledger)}")
     st.stop()
 
 # ============================================================
-# 4. MERGE LEDGER WITH PROVIDER (ON Code)
+# 4. MERGE LEDGER WITH PROVIDER (Provider Code -> Code)
 # ============================================================
-provider_df = provider_df[required_provider_cols].copy()
-merged = df.merge(provider_df, on="Code", how="left")
+provider_df = provider_df[provider_required].copy()
+merged = df.merge(
+    provider_df,
+    left_on="Provider Code",
+    right_on="Code",
+    how="left",
+)
 
 if merged["Address"].isna().all():
     st.error("No address data found after merging ledger with Provider tab.")
@@ -102,12 +113,17 @@ if os.path.exists(CACHE_PATH):
 else:
     cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
 
-def geocode_address(address):
+def geocode_address(address: str):
     """Geocode using Nominatim (OpenStreetMap)."""
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1}
     try:
-        r = requests.get(url, params=params, timeout=10, headers={"User-Agent": "streamlit-utility-map"})
+        r = requests.get(
+            url,
+            params=params,
+            timeout=10,
+            headers={"User-Agent": "streamlit-utility-map"},
+        )
         r.raise_for_status()
         data = r.json()
         if data:
@@ -117,10 +133,13 @@ def geocode_address(address):
     return None, None
 
 merged["full_address"] = (
-    merged["Address"].astype(str) + ", " +
-    merged["City"].astype(str) + ", " +
-    merged["State"].astype(str) + " " +
-    merged["Zip Code"].astype(str)
+    merged["Address"].astype(str)
+    + ", "
+    + merged["City"].astype(str)
+    + ", "
+    + merged["State"].astype(str)
+    + " "
+    + merged["Zip Code"].astype(str)
 )
 
 merged = merged.merge(cache, on="Code", how="left")
@@ -133,11 +152,13 @@ if not missing_geo.empty:
     new_entries = []
     for _, row in missing_geo.iterrows():
         lat, lon = geocode_address(row["full_address"])
-        new_entries.append({
-            "Code": row["Code"],
-            "Latitude": lat,
-            "Longitude": lon
-        })
+        new_entries.append(
+            {
+                "Code": row["Code"],
+                "Latitude": lat,
+                "Longitude": lon,
+            }
+        )
 
     new_df = pd.DataFrame(new_entries)
     cache = pd.concat([cache, new_df], ignore_index=True)
@@ -161,12 +182,12 @@ col_f1, col_f2 = st.columns(2)
 years = sorted(merged["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
-utilities = ["All"] + sorted(merged["Utility"].dropna().unique())
+utilities = ["All"] + sorted(merged["Utility_x"].dropna().unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
 f = merged[merged["Year"] == selected_year].copy()
 if selected_utility != "All":
-    f = f[f["Utility"] == selected_utility]
+    f = f[f["Utility_x"] == selected_utility]
 
 if f.empty:
     st.warning("No data available for the selected filters.")
@@ -197,9 +218,11 @@ for col in ["CPOR", "CPAR", "Occupancy %"]:
         agg_cols[col] = "mean"
 
 prop = f.groupby(
-    ["Property Name", "Latitude", "Longitude", "Utility"],
-    as_index=False
+    ["Property Name", "Latitude", "Longitude", "Utility_x"],
+    as_index=False,
 ).agg(agg_cols)
+
+prop.rename(columns={"Utility_x": "Utility"}, inplace=True)
 
 if prop.empty:
     st.warning("No property-level data available after aggregation.")
@@ -289,11 +312,31 @@ Outlier: {outlier}
     "style": {"backgroundColor": "rgba(0, 0, 0, 0.8)", "color": "white"},
 }
 
-prop["spend"] = prop["$ Amount"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A") if "$ Amount" in prop.columns else "N/A"
-prop["usage"] = prop["Usage"].map(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A") if "Usage" in prop.columns else "N/A"
-prop["cpor"] = prop["CPOR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A") if "CPOR" in prop.columns else "N/A"
-prop["cpar"] = prop["CPAR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A") if "CPAR" in prop.columns else "N/A"
-prop["occ"] = prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A") if "Occupancy %" in prop.columns else "N/A"
+prop["spend"] = (
+    prop["$ Amount"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+    if "$ Amount" in prop.columns
+    else "N/A"
+)
+prop["usage"] = (
+    prop["Usage"].map(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
+    if "Usage" in prop.columns
+    else "N/A"
+)
+prop["cpor"] = (
+    prop["CPOR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
+    if "CPOR" in prop.columns
+    else "N/A"
+)
+prop["cpar"] = (
+    prop["CPAR"].map(lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A")
+    if "CPAR" in prop.columns
+    else "N/A"
+)
+prop["occ"] = (
+    prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
+    if "Occupancy %" in prop.columns
+    else "N/A"
+)
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 
 # ============================================================
