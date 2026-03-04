@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from prophet import Prophet
+
 from utils.load_data import load_property_ledger
 
 # -----------------------------
@@ -9,37 +10,39 @@ from utils.load_data import load_property_ledger
 # -----------------------------
 df, month_order = load_property_ledger()
 
-if df is None:
+if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
-# Ensure Billing Date is datetime
-df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
+if "Billing Date" in df.columns:
+    df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
 st.title("📈 Forecasting Center")
 
 # -----------------------------
 # FILTERS
 # -----------------------------
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
-prop = col1.selectbox("Property", ["All"] + sorted(df["Property Name"].unique()))
-util = col2.selectbox("Utility", ["All"] + sorted(df["Utility"].unique()))
-target = col3.selectbox("Forecast Target", ["Spend ($ Amount)", "Usage"])
+properties = ["All"] + sorted(df["Property Name"].unique())
+utilities = ["All"] + sorted(df["Utility"].unique())
+years = sorted(df["Year"].dropna().unique()) if "Year" in df.columns else []
 
-# -----------------------------
-# APPLY FILTERS
-# -----------------------------
+prop = col1.selectbox("Property", properties)
+util = col2.selectbox("Utility", utilities)
+selected_years = col3.multiselect("Years", years, default=years)
+target = col4.selectbox("Forecast Target", ["Spend ($ Amount)", "Usage"])
+
 f = df.copy()
-
 if prop != "All":
     f = f[f["Property Name"] == prop]
-
 if util != "All":
     f = f[f["Utility"] == util]
+if selected_years:
+    f = f[f["Year"].isin(selected_years)]
 
 if f.empty:
-    st.warning("No data available for the selected filters.")
+    st.warning("No data available for selected filters.")
     st.stop()
 
 # -----------------------------
@@ -51,14 +54,13 @@ if target == "Spend ($ Amount)":
         .sum()
         .rename(columns={"Billing Date": "ds", "$ Amount": "y"})
     )
-else:  # Usage
+else:
     ts = (
         f.groupby("Billing Date", as_index=False)["Usage"]
         .sum()
         .rename(columns={"Billing Date": "ds", "Usage": "y"})
     )
 
-# Prophet requires no NaN
 ts = ts.dropna()
 
 if ts.empty:
@@ -75,17 +77,32 @@ future = m.make_future_dataframe(periods=12, freq="MS")
 forecast = m.predict(future)
 
 # -----------------------------
-# CHART
+# HISTORICAL + FORECAST CHART
 # -----------------------------
-st.subheader("Forecast")
+st.subheader("Historical + Forecast")
+
+hist = ts.copy()
+hist["type"] = "Actual"
+fc = forecast[["ds", "yhat"]].copy()
+fc["type"] = "Forecast"
+fc = fc[fc["ds"] > hist["ds"].max()]
+
+combined = pd.concat(
+    [
+        hist.rename(columns={"y": "value"}),
+        fc.rename(columns={"yhat": "value"}),
+    ],
+    ignore_index=True,
+)
 
 chart = (
-    alt.Chart(forecast)
-    .mark_line()
+    alt.Chart(combined)
+    .mark_line(point=True)
     .encode(
-        x="ds:T",
-        y="yhat:Q",
-        tooltip=["ds", "yhat", "yhat_lower", "yhat_upper"]
+        x=alt.X("ds:T", title="Date"),
+        y=alt.Y("value:Q", title=target),
+        color=alt.Color("type:N", title="Series"),
+        tooltip=["ds", "value", "type"],
     )
     .properties(height=400)
 )
