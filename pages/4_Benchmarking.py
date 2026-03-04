@@ -230,26 +230,37 @@ else:
     st.info("Utility-level benchmarking requires Utility, Month_Num, and the selected metric.")
 
 # -----------------------------
-# PORTFOLIO RANKING
+# PORTFOLIO EFFICIENCY RANKING (NOW A COMBINED LINE GRAPH)
 # -----------------------------
-st.subheader("🏅 Portfolio Efficiency Ranking")
+st.subheader("🏅 Portfolio Efficiency Trend (All Properties)")
 
-if not rank_df.empty:
-    chart_rank = (
-        alt.Chart(rank_df)
-        .mark_bar()
-        .encode(
-            x=alt.X(selected_metric + ":Q", title=selected_metric.replace("_", " ")),
-            y=alt.Y("Property Name:N", sort="-x"),
-            color=alt.Color(selected_metric + ":Q", legend=None),
-            tooltip=["Property Name", selected_metric, "Rank"],
-        )
-        .properties(height=400)
+if {"Property Name", "Month_Num", selected_metric}.issubset(f.columns):
+
+    trend_df = (
+        f.groupby(["Property Name", "Month_Num"], as_index=False)[selected_metric]
+        .mean()
+        .dropna(subset=[selected_metric])
     )
-    st.altair_chart(chart_rank, use_container_width=True)
-    st.dataframe(rank_df)
+
+    if not trend_df.empty:
+        chart_trend = (
+            alt.Chart(trend_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("Month_Num:O", title="Month"),
+                y=alt.Y(f"{selected_metric}:Q", title=selected_metric.replace("_", " ")),
+                color=alt.Color("Property Name:N", title="Property"),
+                tooltip=["Property Name", "Month_Num", selected_metric],
+            )
+            .properties(height=400)
+        )
+        st.altair_chart(chart_trend, use_container_width=True)
+
+        st.markdown("Each line represents a property. This shows how efficiency changes month‑to‑month across the portfolio.")
+    else:
+        st.info("No data available to build the portfolio trend line chart.")
 else:
-    st.info("No ranking data available.")
+    st.info("Portfolio trend chart requires Property Name, Month_Num, and the selected metric.")
 
 # -----------------------------
 # SCORECARDS
@@ -382,3 +393,4 @@ if heat_rows:
     st.altair_chart(chart_heat, use_container_width=True)
 else:
     st.info("Not enough data for heatmap.")
+
