@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+
 from utils.load_data import load_property_ledger
+from utils.charts import cost_trend_chart, usage_trend_chart
 
 # -----------------------------
 # LOAD DATA
@@ -12,67 +14,79 @@ if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
-# Ensure Billing Date is datetime
-df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
+if "Billing Date" in df.columns:
+    df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
-st.title("Property Detail")
+st.title("🏨 Property Detail")
 
 # -----------------------------
-# PROPERTY SELECTOR
+# FILTERS
 # -----------------------------
-prop = st.selectbox("Select Property", sorted(df["Property Name"].unique()))
+col1, col2 = st.columns(2)
 
-# Filter to selected property
+properties = sorted(df["Property Name"].unique())
+years = sorted(df["Year"].dropna().unique()) if "Year" in df.columns else []
+
+prop = col1.selectbox("Select Property", properties)
+selected_years = col2.multiselect("Years", years, default=years)
+
 f = df[df["Property Name"] == prop].copy()
+if selected_years:
+    f = f[f["Year"].isin(selected_years)]
 
-# Drop rows missing Year or Month (bad Billing Date)
-f = f.dropna(subset=["Year", "Month"])
+f = f.dropna(subset=["Year", "Month"]) if {"Year", "Month"}.issubset(f.columns) else f
 
 if f.empty:
-    st.warning("No data available for this property.")
+    st.warning("No data available for this property and year selection.")
     st.stop()
 
 # -----------------------------
 # SUMMARY METRICS
 # -----------------------------
-col1, col2, col3 = st.columns(3)
+colA, colB, colC = st.columns(3)
 
-col1.metric("Total Spend", f"${f['$ Amount'].sum():,.0f}")
-col2.metric("Total Usage", f"{f['Usage'].sum():,.0f}")
-col3.metric("Bills Count", len(f))
+total_spend = f["$ Amount"].sum() if "$ Amount" in f.columns else None
+total_usage = f["Usage"].sum() if "Usage" in f.columns else None
+
+colA.metric("Total Spend", f"${total_spend:,.0f}" if total_spend is not None else "N/A")
+colB.metric("Total Usage", f"{total_usage:,.0f}" if total_usage is not None else "N/A")
+colC.metric("Bills Count", len(f))
 
 # -----------------------------
-# CHARTS
+# YOY TRENDS
 # -----------------------------
-st.subheader("Spend Trend")
+st.subheader("Year-over-Year Spend Trend")
+st.altair_chart(cost_trend_chart(f), use_container_width=True)
 
-spend_chart = (
-    alt.Chart(f)
-    .mark_line(point=True)
-    .encode(
-        x=alt.X("Billing Date:T", title="Billing Date"),
-        y=alt.Y("$ Amount:Q", title="Spend ($)"),
-        tooltip=["Billing Date", "$ Amount"]
+st.subheader("Year-over-Year Usage Trend")
+st.altair_chart(usage_trend_chart(f), use_container_width=True)
+
+# -----------------------------
+# UTILITY BREAKDOWN
+# -----------------------------
+st.subheader("Spend by Utility (by Year)")
+
+if "Utility" in f.columns and "$ Amount" in f.columns and "Year" in f.columns:
+    util_df = (
+        f.groupby(["Utility", "Year"], as_index=False)["$ Amount"]
+        .sum()
     )
-    .properties(height=300)
-)
 
-st.altair_chart(spend_chart, use_container_width=True)
-
-st.subheader("Usage Trend")
-
-usage_chart = (
-    alt.Chart(f)
-    .mark_line(point=True)
-    .encode(
-        x=alt.X("Billing Date:T", title="Billing Date"),
-        y=alt.Y("Usage:Q", title="Usage"),
-        tooltip=["Billing Date", "Usage"]
+    chart = (
+        alt.Chart(util_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Utility:N", title="Utility"),
+            y=alt.Y("$ Amount:Q", title="Spend ($)"),
+            color=alt.Color("Year:N", title="Year"),
+            tooltip=["Utility", "Year", "$ Amount"],
+        )
+        .properties(height=300)
     )
-    .properties(height=300)
-)
 
-st.altair_chart(usage_chart, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
+else:
+    st.info("Utility breakdown not available for this dataset.")
 
 # -----------------------------
 # RAW TABLE
