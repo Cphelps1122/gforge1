@@ -6,7 +6,7 @@ import pandas as pd
 # -----------------------------
 def cost_trend_chart(df):
     if df.empty:
-        return alt.Chart(pd.DataFrame({"Billing Date": [], "$ Amount": []})).mark_line()
+        return alt.Chart(pd.DataFrame({"Billing Date": [], "$ Amount": [], "Year": []})).mark_line()
 
     chart = (
         alt.Chart(df)
@@ -14,8 +14,8 @@ def cost_trend_chart(df):
         .encode(
             x=alt.X("Billing Date:T", title="Billing Date"),
             y=alt.Y("$ Amount:Q", title="Spend ($)"),
-            color=alt.Color("Property Name:N", title="Property"),
-            tooltip=["Billing Date", "Property Name", "$ Amount"]
+            color=alt.Color("Year:N", title="Year"),
+            tooltip=["Billing Date", "Year", "$ Amount"]
         )
         .properties(height=300)
     )
@@ -28,7 +28,7 @@ def cost_trend_chart(df):
 # -----------------------------
 def usage_trend_chart(df):
     if df.empty:
-        return alt.Chart(pd.DataFrame({"Billing Date": [], "Usage": []})).mark_line()
+        return alt.Chart(pd.DataFrame({"Billing Date": [], "Usage": [], "Year": []})).mark_line()
 
     chart = (
         alt.Chart(df)
@@ -36,8 +36,8 @@ def usage_trend_chart(df):
         .encode(
             x=alt.X("Billing Date:T", title="Billing Date"),
             y=alt.Y("Usage:Q", title="Usage"),
-            color=alt.Color("Property Name:N", title="Property"),
-            tooltip=["Billing Date", "Property Name", "Usage"]
+            color=alt.Color("Year:N", title="Year"),
+            tooltip=["Billing Date", "Year", "Usage"]
         )
         .properties(height=300)
     )
@@ -65,3 +65,4 @@ def spend_by_utility_chart(df):
     )
 
     return chart
+
