@@ -4,6 +4,7 @@ import pydeck as pdk
 import requests
 import os
 import glob
+import re
 
 from utils.load_data import load_property_ledger
 
@@ -19,13 +20,28 @@ if df is None or df.empty:
 
 df.columns = df.columns.str.strip()
 
-# Ensure Full Address exists
-if "Full Address" not in df.columns:
-    st.error("Raw Data must contain a column named 'Full Address'.")
+# ============================================================
+# 2. AUTO-DETECT FULL ADDRESS COLUMN
+# ============================================================
+def normalize(col):
+    return re.sub(r"[^a-z0-9]", "", col.lower())
+
+normalized_map = {normalize(c): c for c in df.columns}
+
+full_addr_col = None
+for candidate in ["fulladdress", "full_address", "full address"]:
+    if candidate in normalized_map:
+        full_addr_col = normalized_map[candidate]
+        break
+
+if full_addr_col is None:
+    st.error(f"Could not find a Full Address column. Columns found: {list(df.columns)}")
     st.stop()
 
+df = df.rename(columns={full_addr_col: "Full Address"})
+
 # ============================================================
-# 2. GEOCODING CACHE
+# 3. GEOCODING CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
@@ -81,7 +97,7 @@ if df.empty:
     st.stop()
 
 # ============================================================
-# 3. FILTERS
+# 4. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
 
@@ -104,7 +120,7 @@ if f.empty:
     st.stop()
 
 # ============================================================
-# 4. LAYER TOGGLES
+# 5. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -116,7 +132,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 5. AGGREGATE TO PROPERTY LEVEL
+# 6. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -134,7 +150,7 @@ if "Utility" in f.columns:
 prop = f.groupby(group_cols, as_index=False).agg(agg_cols)
 
 # ============================================================
-# 6. COLOR MAPPING
+# 7. COLOR MAPPING
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],
@@ -232,7 +248,7 @@ Outlier: {outlier}
 }
 
 # ============================================================
-# 7. BUILD LAYERS
+# 8. BUILD LAYERS
 # ============================================================
 layers = []
 
@@ -318,7 +334,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 8. RENDER MAP
+# 9. RENDER MAP
 # ============================================================
 view_state = pdk.ViewState(
     latitude=prop["Latitude"].mean(),
