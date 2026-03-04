@@ -18,6 +18,9 @@ if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
     st.stop()
 
+# Normalize ledger column names (strip spaces)
+df.columns = df.columns.str.strip()
+
 # ---- Load Provider tab directly from the same Excel file ----
 def load_provider_tab():
     files = glob.glob("data/*.xlsx")
@@ -26,6 +29,7 @@ def load_provider_tab():
     path = files[0]
     try:
         provider_df = pd.read_excel(path, sheet_name="Provider")
+        provider_df.columns = provider_df.columns.str.strip()
         return provider_df
     except Exception:
         return None
@@ -36,7 +40,7 @@ if provider_df is None or provider_df.empty:
     st.error("Could not load 'Provider' tab from the Excel file in /data.")
     st.stop()
 
-# Expected columns in Provider tab
+# Expected columns in Provider tab (after stripping)
 provider_required = [
     "Code",
     "Name of utility provider",
@@ -110,6 +114,7 @@ CACHE_PATH = "data/geocode_cache.csv"
 
 if os.path.exists(CACHE_PATH):
     cache = pd.read_csv(CACHE_PATH)
+    cache.columns = cache.columns.str.strip()
 else:
     cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
 
@@ -182,12 +187,14 @@ col_f1, col_f2 = st.columns(2)
 years = sorted(merged["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
-utilities = ["All"] + sorted(merged["Utility_x"].dropna().unique())
+# Utility from ledger side (Utility_x after merge)
+utility_col = "Utility_x" if "Utility_x" in merged.columns else "Utility"
+utilities = ["All"] + sorted(merged[utility_col].dropna().unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
 f = merged[merged["Year"] == selected_year].copy()
 if selected_utility != "All":
-    f = f[f["Utility_x"] == selected_utility]
+    f = f[f[utility_col] == selected_utility]
 
 if f.empty:
     st.warning("No data available for the selected filters.")
@@ -218,11 +225,11 @@ for col in ["CPOR", "CPAR", "Occupancy %"]:
         agg_cols[col] = "mean"
 
 prop = f.groupby(
-    ["Property Name", "Latitude", "Longitude", "Utility_x"],
+    ["Property Name", "Latitude", "Longitude", utility_col],
     as_index=False,
 ).agg(agg_cols)
 
-prop.rename(columns={"Utility_x": "Utility"}, inplace=True)
+prop.rename(columns={utility_col: "Utility"}, inplace=True)
 
 if prop.empty:
     st.warning("No property-level data available after aggregation.")
