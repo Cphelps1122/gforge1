@@ -129,6 +129,7 @@ def geocode_address(address):
 merged["full_address"] = (
     merged["Address"].astype(str)
     + ", "
+    st.write("MERGED COLUMNS:", list(merged.columns))
     + merged["City"].astype(str)
     + ", "
     + merged["State"].astype(str)
@@ -421,3 +422,4 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
+
