@@ -4,9 +4,6 @@ import pydeck as pdk
 import requests
 import os
 import glob
-import re
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils.load_data import load_property_ledger
 
@@ -22,89 +19,13 @@ if df is None or df.empty:
 
 df.columns = df.columns.str.strip()
 
-# ============================================================
-# 2. LOAD PROVIDER TAB
-# ============================================================
-def load_provider_tab():
-    files = glob.glob("data/*.xlsx")
-    if not files:
-        return None
-    path = files[0]
-    try:
-        provider_df = pd.read_excel(path, sheet_name="Provider")
-        provider_df.columns = provider_df.columns.str.strip()
-        return provider_df
-    except Exception:
-        return None
-
-provider_df = load_provider_tab()
-
-if provider_df is None or provider_df.empty:
-    st.error("Could not load Provider tab.")
+# Ensure Full Address exists
+if "Full Address" not in df.columns:
+    st.error("Raw Data must contain a column named 'Full Address'.")
     st.stop()
 
 # ============================================================
-# 3. AUTO-DETECT PROVIDER COLUMNS
-# ============================================================
-def normalize(col: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", col.lower())
-
-provider_df.columns = provider_df.columns.str.strip()
-normalized_map = {normalize(c): c for c in provider_df.columns}
-
-def find_col(possible_names):
-    for name in possible_names:
-        key = normalize(name)
-        if key in normalized_map:
-            return normalized_map[key]
-    return None
-
-col_code  = find_col(["Code"])
-col_addr  = find_col(["Address", "Street", "Address1"])
-col_city  = find_col(["City", "Town", "Municipality"])
-col_state = find_col(["State", "Province"])
-col_zip   = find_col(["Zip Code", "Zip", "Postal Code"])
-col_util  = find_col(["Utility"])
-
-required = {
-    "Code": col_code,
-    "Address": col_addr,
-    "City": col_city,
-    "State": col_state,
-    "Zip": col_zip,
-    "Utility": col_util,
-}
-
-missing = [k for k, v in required.items() if v is None]
-if missing:
-    st.error(f"Provider tab missing required columns: {', '.join(missing)}")
-    st.stop()
-
-provider_df = provider_df.rename(columns={
-    col_code: "Code",
-    col_addr: "Address",
-    col_city: "City",
-    col_state: "State",
-    col_zip: "Zip",
-    col_util: "Utility",
-})
-
-# ============================================================
-# 4. MERGE LEDGER WITH PROVIDER
-# ============================================================
-if "Provider Code" not in df.columns:
-    st.error("Ledger missing 'Provider Code' column.")
-    st.stop()
-
-merged = df.merge(provider_df, left_on="Provider Code", right_on="Code", how="left")
-
-for col in ["Address", "City", "State", "Zip"]:
-    if col not in merged.columns:
-        st.error(f"Column '{col}' missing after merge. Actual columns: {list(merged.columns)}")
-        st.stop()
-
-# ============================================================
-# 5. GEOCODING + CACHE
+# 2. GEOCODING CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
@@ -112,7 +33,7 @@ if os.path.exists(CACHE_PATH):
     cache = pd.read_csv(CACHE_PATH)
     cache.columns = cache.columns.str.strip()
 else:
-    cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
+    cache = pd.DataFrame(columns=["Full Address", "Latitude", "Longitude"])
 
 def geocode_address(address: str):
     url = "https://nominatim.openstreetmap.org/search"
@@ -127,64 +48,63 @@ def geocode_address(address: str):
         return None, None
     return None, None
 
-merged["full_address"] = (
-    merged["Address"].astype(str)
-    + ", "
-    + merged["City"].astype(str)
-    + ", "
-    + merged["State"].astype(str)
-    + " "
-    + merged["Zip"].astype(str)
-)
+# Attach cached coordinates
+df = df.merge(cache, on="Full Address", how="left")
 
-merged = merged.merge(cache, on="Code", how="left")
-
-missing_geo = merged[merged["Latitude"].isna() | merged["Longitude"].isna()]
+# Geocode missing
+missing_geo = df[df["Latitude"].isna() | df["Longitude"].isna()]
 
 if not missing_geo.empty:
-    st.info(f"Geocoding {len(missing_geo)} providers...")
+    st.info(f"Geocoding {len(missing_geo)} addresses...")
 
     new_entries = []
     for _, row in missing_geo.iterrows():
-        lat, lon = geocode_address(row["full_address"])
-        new_entries.append({"Code": row["Code"], "Latitude": lat, "Longitude": lon})
+        lat, lon = geocode_address(row["Full Address"])
+        new_entries.append({
+            "Full Address": row["Full Address"],
+            "Latitude": lat,
+            "Longitude": lon
+        })
 
     new_df = pd.DataFrame(new_entries)
     cache = pd.concat([cache, new_df], ignore_index=True)
-    cache.drop_duplicates(subset=["Code"], keep="last", inplace=True)
+    cache.drop_duplicates(subset=["Full Address"], keep="last", inplace=True)
     cache.to_csv(CACHE_PATH, index=False)
 
-    merged = merged.drop(columns=["Latitude", "Longitude"], errors="ignore")
-    merged = merged.merge(cache, on="Code", how="left")
+    df = df.drop(columns=["Latitude", "Longitude"], errors="ignore")
+    df = df.merge(cache, on="Full Address", how="left")
 
-merged = merged.dropna(subset=["Latitude", "Longitude"])
+df = df.dropna(subset=["Latitude", "Longitude"])
 
-if merged.empty:
+if df.empty:
     st.error("No valid coordinates available.")
     st.stop()
 
 # ============================================================
-# 6. FILTERS
+# 3. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
 
-years = sorted(merged["Year"].dropna().unique())
+if "Year" not in df.columns:
+    st.error("Raw Data must contain a 'Year' column.")
+    st.stop()
+
+years = sorted(df["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
-utility_col = "Utility_x" if "Utility_x" in merged.columns else "Utility"
-utilities = ["All"] + sorted(merged[utility_col].dropna().unique())
+utilities = ["All"] + sorted(df["Utility"].dropna().unique()) if "Utility" in df.columns else ["All"]
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
-f = merged[merged["Year"] == selected_year].copy()
-if selected_utility != "All":
-    f = f[f[utility_col] == selected_utility]
+f = df[df["Year"] == selected_year].copy()
+if selected_utility != "All" and "Utility" in df.columns:
+    f = f[f["Utility"] == selected_utility]
 
 if f.empty:
     st.warning("No data available for the selected filters.")
     st.stop()
 
 # ============================================================
-# 7. LAYER TOGGLES
+# 4. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -196,7 +116,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 8. AGGREGATE TO PROPERTY LEVEL
+# 5. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -207,15 +127,14 @@ for col in ["CPOR", "CPAR", "Occupancy %"]:
     if col in f.columns:
         agg_cols[col] = "mean"
 
-prop = f.groupby(
-    ["Property Name", "Latitude", "Longitude", utility_col],
-    as_index=False
-).agg(agg_cols)
+group_cols = ["Property Name", "Latitude", "Longitude"]
+if "Utility" in f.columns:
+    group_cols.append("Utility")
 
-prop.rename(columns={utility_col: "Utility"}, inplace=True)
+prop = f.groupby(group_cols, as_index=False).agg(agg_cols)
 
 # ============================================================
-# 9. COLOR MAPPING
+# 6. COLOR MAPPING
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],
@@ -225,7 +144,7 @@ utility_colors = {
 
 prop["utility_color"] = prop["Utility"].apply(
     lambda u: utility_colors.get(u, [200, 200, 200, 180])
-)
+) if "Utility" in prop.columns else [[200, 200, 200, 180]] * len(prop)
 
 prop["base_color"] = [[160, 160, 160, 140]] * len(prop)
 
@@ -313,7 +232,7 @@ Outlier: {outlier}
 }
 
 # ============================================================
-# 10. BUILD LAYERS
+# 7. BUILD LAYERS
 # ============================================================
 layers = []
 
@@ -399,7 +318,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 11. RENDER MAP
+# 8. RENDER MAP
 # ============================================================
 view_state = pdk.ViewState(
     latitude=prop["Latitude"].mean(),
@@ -417,4 +336,3 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
-
