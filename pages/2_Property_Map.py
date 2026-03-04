@@ -3,11 +3,12 @@ import pandas as pd
 import pydeck as pdk
 import requests
 import os
+import glob
 
 from utils.load_data import load_property_ledger
 
 # ============================================================
-# 1. LOAD DATA
+# 1. LOAD LEDGER + PROVIDER TAB
 # ============================================================
 df, month_order = load_property_ledger()
 
@@ -15,6 +16,33 @@ st.title("📍 Property Map")
 
 if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
+    st.stop()
+
+# ---- Load Provider tab directly from the same Excel file ----
+def load_provider_tab():
+    files = glob.glob("data/*.xlsx")
+    if not files:
+        return None
+    # Use the first Excel file in /data (same pattern as ledger)
+    path = files[0]
+    try:
+        provider_df = pd.read_excel(path, sheet_name="Provider")
+        return provider_df
+    except Exception:
+        return None
+
+provider_df = load_provider_tab()
+
+if provider_df is None or provider_df.empty:
+    st.error("Could not load 'Provider' tab from the Excel file in /data.")
+    st.stop()
+
+# Expecting these columns in Provider tab:
+# Code, Name of utility provider, Address, City, State, Zip Code
+required_provider_cols = ["Code", "Name of utility provider", "Address", "City", "State", "Zip Code"]
+missing_provider = [c for c in required_provider_cols if c not in provider_df.columns]
+if missing_provider:
+    st.error(f"Provider tab is missing required columns: {', '.join(missing_provider)}")
     st.stop()
 
 # ============================================================
@@ -46,90 +74,97 @@ Hover over any property to see key performance metrics.
 """)
 
 # ============================================================
-# 3. ENSURE REQUIRED COLUMNS
+# 3. ENSURE REQUIRED LEDGER COLUMNS
 # ============================================================
-required_cols = ["Property Name", "Address", "City", "State", "Utility", "Year"]
-missing = [c for c in required_cols if c not in df.columns]
-if missing:
-    st.error(f"Missing required columns for map: {', '.join(missing)}")
+required_ledger_cols = ["Property Name", "Code", "Utility", "Year"]
+missing_ledger = [c for c in required_ledger_cols if c not in df.columns]
+if missing_ledger:
+    st.error(f"Missing required columns in ledger for map: {', '.join(missing_ledger)}")
     st.stop()
 
 # ============================================================
-# 4. AUTO-GEOCODING WITH LOCAL CACHE
+# 4. MERGE LEDGER WITH PROVIDER (ON Code)
+# ============================================================
+provider_df = provider_df[required_provider_cols].copy()
+merged = df.merge(provider_df, on="Code", how="left")
+
+if merged["Address"].isna().all():
+    st.error("No address data found after merging ledger with Provider tab.")
+    st.stop()
+
+# ============================================================
+# 5. AUTO-GEOCODING WITH LOCAL CACHE
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
-# Load cache if exists
 if os.path.exists(CACHE_PATH):
     cache = pd.read_csv(CACHE_PATH)
 else:
-    cache = pd.DataFrame(columns=["Property Name", "Latitude", "Longitude"])
+    cache = pd.DataFrame(columns=["Code", "Latitude", "Longitude"])
 
 def geocode_address(address):
     """Geocode using Nominatim (OpenStreetMap)."""
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1}
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=10, headers={"User-Agent": "streamlit-utility-map"})
         r.raise_for_status()
         data = r.json()
         if data:
             return float(data[0]["lat"]), float(data[0]["lon"])
-    except:
+    except Exception:
         return None, None
     return None, None
 
-# Build full address
-df["full_address"] = (
-    df["Address"].astype(str) + ", " +
-    df["City"].astype(str) + ", " +
-    df["State"].astype(str)
+merged["full_address"] = (
+    merged["Address"].astype(str) + ", " +
+    merged["City"].astype(str) + ", " +
+    merged["State"].astype(str) + " " +
+    merged["Zip Code"].astype(str)
 )
 
-# Merge with cache
-df = df.merge(cache, on="Property Name", how="left")
+merged = merged.merge(cache, on="Code", how="left")
 
-# Geocode missing entries
-missing_geo = df[df["Latitude"].isna() | df["Longitude"].isna()]
+missing_geo = merged[merged["Latitude"].isna() | merged["Longitude"].isna()]
 
 if not missing_geo.empty:
-    st.info(f"Geocoding {len(missing_geo)} properties...")
+    st.info(f"Geocoding {len(missing_geo)} providers from Provider tab...")
 
     new_entries = []
     for _, row in missing_geo.iterrows():
         lat, lon = geocode_address(row["full_address"])
         new_entries.append({
-            "Property Name": row["Property Name"],
+            "Code": row["Code"],
             "Latitude": lat,
             "Longitude": lon
         })
 
     new_df = pd.DataFrame(new_entries)
     cache = pd.concat([cache, new_df], ignore_index=True)
+    cache.drop_duplicates(subset=["Code"], keep="last", inplace=True)
     cache.to_csv(CACHE_PATH, index=False)
 
-    df = df.drop(columns=["Latitude", "Longitude"], errors="ignore")
-    df = df.merge(cache, on="Property Name", how="left")
+    merged = merged.drop(columns=["Latitude", "Longitude"], errors="ignore")
+    merged = merged.merge(cache, on="Code", how="left")
 
-# Drop rows still missing coordinates
-df = df.dropna(subset=["Latitude", "Longitude"])
+merged = merged.dropna(subset=["Latitude", "Longitude"])
 
-if df.empty:
+if merged.empty:
     st.error("No valid coordinates available after geocoding.")
     st.stop()
 
 # ============================================================
-# 5. FILTERS
+# 6. FILTERS
 # ============================================================
 col_f1, col_f2 = st.columns(2)
 
-years = sorted(df["Year"].dropna().unique())
+years = sorted(merged["Year"].dropna().unique())
 selected_year = col_f1.selectbox("Year", years)
 
-utilities = ["All"] + sorted(df["Utility"].dropna().unique())
+utilities = ["All"] + sorted(merged["Utility"].dropna().unique())
 selected_utility = col_f2.selectbox("Utility Filter", utilities)
 
-f = df[df["Year"] == selected_year].copy()
+f = merged[merged["Year"] == selected_year].copy()
 if selected_utility != "All":
     f = f[f["Utility"] == selected_utility]
 
@@ -138,7 +173,7 @@ if f.empty:
     st.stop()
 
 # ============================================================
-# 6. LAYER TOGGLES
+# 7. LAYER TOGGLES
 # ============================================================
 st.subheader("Map Layers")
 
@@ -150,7 +185,7 @@ show_occ = c4.checkbox("Occupancy", value=False)
 show_outliers = c5.checkbox("Outliers", value=False)
 
 # ============================================================
-# 7. AGGREGATE TO PROPERTY LEVEL
+# 8. AGGREGATE TO PROPERTY LEVEL
 # ============================================================
 agg_cols = {}
 if "$ Amount" in f.columns:
@@ -166,8 +201,12 @@ prop = f.groupby(
     as_index=False
 ).agg(agg_cols)
 
+if prop.empty:
+    st.warning("No property-level data available after aggregation.")
+    st.stop()
+
 # ============================================================
-# 8. COLOR MAPPING
+# 9. COLOR MAPPING
 # ============================================================
 utility_colors = {
     "Electric": [255, 215, 0, 180],   # Yellow
@@ -234,7 +273,7 @@ if eff_metric:
         prop["is_outlier"] = z.abs() >= 2
 
 # ============================================================
-# 9. TOOLTIP
+# 10. TOOLTIP
 # ============================================================
 tooltip = {
     "html": """
@@ -258,7 +297,7 @@ prop["occ"] = prop["Occupancy %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else 
 prop["outlier"] = prop["is_outlier"].map(lambda x: "Yes" if x else "No")
 
 # ============================================================
-# 10. BUILD LAYERS
+# 11. BUILD LAYERS
 # ============================================================
 layers = []
 
@@ -350,7 +389,7 @@ if show_outliers and prop["is_outlier"].any():
     )
 
 # ============================================================
-# 11. VIEW STATE
+# 12. VIEW STATE
 # ============================================================
 center_lat = prop["Latitude"].mean()
 center_lon = prop["Longitude"].mean()
@@ -364,7 +403,7 @@ view_state = pdk.ViewState(
 )
 
 # ============================================================
-# 12. RENDER MAP
+# 13. RENDER MAP
 # ============================================================
 deck = pdk.Deck(
     map_style="mapbox://styles/mapbox/dark-v10",
