@@ -2,7 +2,7 @@ import pandas as pd
 import requests
 import time
 
-df = pd.read_excel("data/yourfile.xlsx", sheet_name="Raw Data")
+df = pd.read_excel("data/mcneill_database.xlsx", sheet_name="Raw Data")
 df.columns = df.columns.str.strip()
 
 def normalize(col):
