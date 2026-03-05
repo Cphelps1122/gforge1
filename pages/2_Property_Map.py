@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
-import requests
 import os
 import re
 
@@ -27,17 +26,11 @@ def normalize(col):
 
 normalized_map = {normalize(c): c for c in df.columns}
 
-# Detect Property Name
 col_property = normalized_map.get("propertyname")
+col_city     = normalized_map.get("city")
+col_state    = normalized_map.get("state")
 
-# Detect City
-col_city = normalized_map.get("city")
-
-# Detect State
-col_state = normalized_map.get("state")
-
-# Detect ZIP Code (many possible spellings)
-zip_candidates = ["zipcode", "zip", "zipcodes", "postalcode", "postalcode"]
+zip_candidates = ["zipcode", "zip", "zipcodes", "postalcode"]
 col_zip = None
 for z in zip_candidates:
     if z in normalized_map:
@@ -54,7 +47,6 @@ if missing:
     st.error(f"Raw Data missing required columns: {', '.join(missing)}")
     st.stop()
 
-# Rename to standard names
 df = df.rename(columns={
     col_property: "Property Name",
     col_city: "City",
@@ -76,62 +68,35 @@ df["full_address"] = (
 )
 
 # ============================================================
-# 4. GEOCODING CACHE
+# 4. LOAD GEOCODE CACHE ONLY (NO LIVE GEOCODING)
 # ============================================================
 CACHE_PATH = "data/geocode_cache.csv"
 
-if os.path.exists(CACHE_PATH):
-    cache = pd.read_csv(CACHE_PATH)
-    cache.columns = cache.columns.str.strip()
-else:
-    cache = pd.DataFrame(columns=["full_address", "Latitude", "Longitude"])
+if not os.path.exists(CACHE_PATH):
+    st.error("""
+    Missing geocode_cache.csv.
 
-def geocode_address(address: str):
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {"q": address, "format": "json", "limit": 1}
-    try:
-        r = requests.get(
-            url,
-            params=params,
-            timeout=10,
-            headers={"User-Agent": "streamlit-property-map"},
-        )
-        r.raise_for_status()
-        data = r.json()
-        if data:
-            return float(data[0]["lat"]), float(data[0]["lon"])
-    except Exception:
-        return None, None
-    return None, None
+    You must run geocode_addresses.py first to generate coordinates.
+    """)
+    st.stop()
 
-# Attach cached coordinates
+cache = pd.read_csv(CACHE_PATH)
+cache.columns = cache.columns.str.strip()
+
+if "full_address" not in cache.columns or "Latitude" not in cache.columns or "Longitude" not in cache.columns:
+    st.error("geocode_cache.csv is missing required columns.")
+    st.stop()
+
 df = df.merge(cache, on="full_address", how="left")
 
-# Geocode missing
-missing_geo = df[df["Latitude"].isna() | df["Longitude"].isna()]
+missing_coords = df[df["Latitude"].isna() | df["Longitude"].isna()]
 
-if not missing_geo.empty:
-    st.info(f"Geocoding {len(missing_geo)} properties...")
-
-    new_entries = []
-    for _, row in missing_geo.iterrows():
-        lat, lon = geocode_address(row["full_address"])
-        new_entries.append(
-            {"full_address": row["full_address"], "Latitude": lat, "Longitude": lon}
-        )
-
-    new_df = pd.DataFrame(new_entries)
-    cache = pd.concat([cache, new_df], ignore_index=True)
-    cache.drop_duplicates(subset=["full_address"], keep="last", inplace=True)
-    cache.to_csv(CACHE_PATH, index=False)
-
-    df = df.drop(columns=["Latitude", "Longitude"], errors="ignore")
-    df = df.merge(cache, on="full_address", how="left")
-
-df = df.dropna(subset=["Latitude", "Longitude"])
-
-if df.empty:
-    st.error("No valid coordinates available.")
+if not missing_coords.empty:
+    st.error("""
+    Some properties do not have coordinates in geocode_cache.csv.
+    You must re-run geocode_addresses.py to complete the cache.
+    """)
+    st.dataframe(missing_coords[["Property Name", "full_address"]])
     st.stop()
 
 # ============================================================
