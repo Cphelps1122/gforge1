@@ -22,7 +22,7 @@ if "Year" not in df.columns and "Billing Date" in df.columns:
 if "Month_Num" not in df.columns and "Billing Date" in df.columns:
     df["Month_Num"] = df["Billing Date"].dt.month
 
-st.title("📊 Portfolio Benchmarking Platform")
+st.title("Portfolio Benchmarking Platform")
 
 # -----------------------------
 # INFO / LEGEND
@@ -71,7 +71,7 @@ if f.empty:
 # -----------------------------
 # EXECUTIVE KPIs (FIRST)
 # -----------------------------
-st.subheader("🏆 Executive Benchmarking KPIs")
+st.subheader("Executive Benchmarking KPIs")
 
 total_spend = f["$ Amount"].sum() if "$ Amount" in f.columns else None
 total_usage = f["Usage"].sum() if "Usage" in f.columns else None
@@ -175,7 +175,7 @@ for col_name, label in outlier_metrics:
 # -----------------------------
 # BENCHMARKING SUMMARY (SECOND)
 # -----------------------------
-st.subheader("📌 Benchmarking Summary")
+st.subheader("Benchmarking Summary")
 
 summary_lines = []
 
@@ -198,7 +198,7 @@ st.markdown("\n".join(summary_lines))
 # -----------------------------
 # OUTLIERS (THIRD)
 # -----------------------------
-st.subheader("🚨 Properties Requiring Attention")
+st.subheader("Properties Requiring Attention")
 
 if outlier_rows:
     st.dataframe(pd.DataFrame(outlier_rows))
@@ -213,7 +213,7 @@ else:
 # -----------------------------
 # UTILITY-LEVEL BENCHMARKING (FOURTH — LINE GRAPH)
 # -----------------------------
-st.subheader("🔌 Utility-Level Benchmarking (Line Trends)")
+st.subheader("Utility-Level Benchmarking (Line Trends)")
 
 if {"Utility", "Month_Num", selected_metric}.issubset(f.columns):
     util_df = (
@@ -249,7 +249,7 @@ else:
 # -----------------------------
 # PORTFOLIO EFFICIENCY TREND (LINE GRAPH)
 # -----------------------------
-st.subheader("🏅 Portfolio Efficiency Trend (All Properties)")
+st.subheader("Portfolio Efficiency Trend (All Properties)")
 
 if {"Property Name", "Month_Num", selected_metric}.issubset(f.columns):
 
@@ -286,7 +286,7 @@ else:
 # -----------------------------
 # SCORECARDS
 # -----------------------------
-st.subheader("📇 Efficiency Scorecards")
+st.subheader("Efficiency Scorecards")
 
 metrics_to_grade = [
     ("CPOR", "CPOR"),
@@ -334,7 +334,7 @@ This creates a simple, intuitive performance profile for each asset.
 # -----------------------------
 # SCATTERPLOTS
 # -----------------------------
-st.subheader("📈 Benchmarking Scatterplots")
+st.subheader("Benchmarking Scatterplots")
 
 scatter_cols = st.columns(2)
 
@@ -399,7 +399,7 @@ Clusters show similar performance groups; outliers highlight properties needing 
 # -----------------------------
 # HEATMAP
 # -----------------------------
-st.subheader("🔥 Portfolio Efficiency Heatmap")
+st.subheader("Portfolio Efficiency Heatmap")
 
 heat_metrics = [
     ("CPOR", "CPOR"),
@@ -442,3 +442,4 @@ It provides a quick, at‑a‑glance view of which properties are strong perform
 """)
 else:
     st.info("Not enough data for heatmap.")
+
