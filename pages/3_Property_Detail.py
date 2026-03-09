@@ -22,7 +22,7 @@ if "Year" not in df.columns and "Billing Date" in df.columns:
 if "Month_Num" not in df.columns and "Billing Date" in df.columns:
     df["Month_Num"] = df["Billing Date"].dt.month
 
-st.title("🏨 Property Energy Detail")
+st.title("Property Energy Detail")
 
 # -----------------------------
 # INFO POPUP (KEY / LEGEND)
@@ -340,7 +340,7 @@ if {"Billing Date", "Year", "Month_Num"}.issubset(f.columns):
 # ANOMALY SUMMARY NARRATIVE
 # -----------------------------
 if anomaly_rows:
-    st.markdown("### 🔍 Summary of Detected Anomalies")
+    st.markdown("### Summary of Detected Anomalies")
 
     summary_text = []
 
@@ -423,3 +423,4 @@ else:
 # -----------------------------
 st.subheader("Raw Data")
 st.dataframe(f)
+
