@@ -10,7 +10,7 @@ from utils.load_data import load_property_ledger
 # 1. LOAD LEDGER
 # ============================================================
 df, month_order = load_property_ledger()
-st.title("📍 Property Map")
+st.title("Property Map")
 
 if df is None or df.empty:
     st.error("No Excel file found in /data. Please add one.")
@@ -362,3 +362,4 @@ deck = pdk.Deck(
 )
 
 st.pydeck_chart(deck)
+
