@@ -17,7 +17,7 @@ if df is None or df.empty:
 if "Billing Date" in df.columns:
     df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
 
-st.title("📈 Forecasting Center")
+st.title("Forecasting Center")
 
 # -----------------------------
 # FILTERS
@@ -108,3 +108,4 @@ chart = (
 )
 
 st.altair_chart(chart, use_container_width=True)
+
