@@ -24,7 +24,7 @@ else:
 # -----------------------------
 # HEADER
 # -----------------------------
-st.title("🏨 Portfolio Energy & Utility Dashboard")
+st.title("Portfolio Energy & Utility Dashboard")
 st.markdown(f"**Last Updated:** {last_updated}")
 
 # -----------------------------
@@ -230,3 +230,4 @@ if {"Utility", "Year", "$ Amount", "Usage"}.issubset(f.columns):
         st.altair_chart(chart_usage, use_container_width=True)
 else:
     st.info("Utility-level breakdown not fully available for this dataset.")
+
