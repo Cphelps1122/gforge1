@@ -4,6 +4,12 @@ import pandas as pd
 
 from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
+from components.header import render_header   # ← NEW IMPORT
+
+# -----------------------------
+# HEADER (logo + title)
+# -----------------------------
+render_header("CGS Utility Dashboard")        # ← NEW HEADER
 
 # -----------------------------
 # LOAD DATA
