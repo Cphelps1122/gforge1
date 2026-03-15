@@ -4,6 +4,12 @@ import altair as alt
 from prophet import Prophet
 
 from utils.load_data import load_property_ledger
+from components.header import render_header   # ← NEW IMPORT
+
+# -----------------------------
+# HEADER (centered full-width logo)
+# -----------------------------
+render_header()                               # ← NEW HEADER
 
 # -----------------------------
 # LOAD DATA
