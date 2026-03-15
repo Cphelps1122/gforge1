@@ -7,9 +7,9 @@ from utils.metrics import portfolio_metrics
 from components.header import render_header   # ← NEW IMPORT
 
 # -----------------------------
-# HEADER (logo + title)
+# HEADER (centered full-width logo)
 # -----------------------------
-render_header("CGS Utility Dashboard")        # ← NEW HEADER
+render_header()                               # ← NEW HEADER
 
 # -----------------------------
 # LOAD DATA
