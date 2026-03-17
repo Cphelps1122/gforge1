@@ -5,15 +5,15 @@ import requests
 
 @st.cache_data(ttl=60)
 def load_property_ledger():
-    # Correct OneDrive direct-download link
-    url = "https://onedrive.live.com/download?resid=9A915530E44251F2!107"
+    # OneDrive API direct-content link (always returns the actual file)
+    url = "https://api.onedrive.com/v1.0/drive/items/fb1f6d6f-01f2-47d1-9832-b0d6ace2ce02/content"
 
     try:
         r = requests.get(url, timeout=10)
 
         # If OneDrive returns HTML instead of Excel
         if r.text.startswith("<"):
-            st.error("❌ OneDrive returned HTML instead of an Excel file. The file is not shared publicly or the link is not a true download link.")
+            st.error("❌ OneDrive returned HTML instead of the Excel file. The file may not be shared correctly.")
             return pd.DataFrame(), []
 
         # Read Excel from bytes
