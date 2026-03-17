@@ -13,7 +13,7 @@ def load_property_ledger():
 
         # If OneDrive returns HTML instead of Excel
         if r.text.startswith("<"):
-            st.error("❌ OneDrive is not returning the Excel file. Check file permissions or share settings.")
+            st.error("❌ OneDrive returned HTML instead of an Excel file. The file is not shared publicly or the link is not a true download link.")
             return pd.DataFrame(), []
 
         # Read Excel from bytes
