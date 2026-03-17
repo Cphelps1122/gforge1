@@ -5,15 +5,15 @@ import requests
 
 @st.cache_data(ttl=60)
 def load_property_ledger():
-    # OneDrive API direct-content link
-    url = "https://api.onedrive.com/v1.0/drive/items/756f5177-3720-44bb-961a-ba594834a8d3/content"
+    # Google Sheets direct-download link
+    url = "https://docs.google.com/spreadsheets/d/1EjTtOs0VqfrubPPZF6tEV8f8p_LWeREn/export?format=xlsx"
 
     try:
         r = requests.get(url, timeout=10)
 
-        # If OneDrive returns HTML instead of Excel
+        # If Google returns HTML instead of Excel
         if r.text.startswith("<"):
-            st.error("❌ OneDrive returned HTML instead of the Excel file. The file may not be shared correctly.")
+            st.error("❌ Google Sheets returned HTML instead of Excel. Make sure the file is shared as 'Anyone with the link can view'.")
             return pd.DataFrame(), []
 
         df = pd.read_excel(io.BytesIO(r.content), sheet_name="Raw Data", engine="openpyxl")
