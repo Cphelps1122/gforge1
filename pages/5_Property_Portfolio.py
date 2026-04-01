@@ -1,468 +1,524 @@
+"""
+Portfolio Dashboard — Premium Property Overview Page
+=====================================================
+Drop-in Streamlit page. Renders:
+  • Aggregate summary bar (total value, income, occupancy, appreciation)
+  • Property cards in a responsive grid with embedded sparkline charts
+  • Click-through navigation to a Property Detail page
+
+Dependencies (pip install if missing):
+  streamlit, matplotlib, numpy, pandas
+
+Usage:
+  1. Save this file as  pages/1_Portfolio_Dashboard.py  (or any name you like).
+  2. Run:  streamlit run pages/1_Portfolio_Dashboard.py
+  3. To wire real data, replace the MOCK_PROPERTIES list with your own data source.
+
+Navigation contract:
+  Clicking a card sets  st.session_state["selected_property_id"]  and triggers
+  st.switch_page() to your detail page.  Adjust TARGET_DETAIL_PAGE below.
+"""
+
 import streamlit as st
-import pandas as pd
+import matplotlib
+matplotlib.use("Agg")                       # headless backend — no GUI needed
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
-from utils.load_data import load_property_ledger
-from components.header import render_header
+import base64, io, textwrap
+from dataclasses import dataclass, field
+from typing import List, Optional
 
-# ─────────────────────────────────────────────
-# HEADER
-# ─────────────────────────────────────────────
-render_header()
+# ──────────────────────────────────────────────
+# CONFIG — edit these to match your project
+# ──────────────────────────────────────────────
+TARGET_DETAIL_PAGE = "pages/2_Property_Detail.py"   # path to your detail page
+CARD_COLUMNS       = 3                               # cards per row
+SPARKLINE_MONTHS   = 12                              # data points in sparkline
 
-# ─────────────────────────────────────────────
-# PAGE CSS — Enterprise Dark Theme
-# ─────────────────────────────────────────────
-st.markdown("""
+# ──────────────────────────────────────────────
+# DATA MODEL
+# ──────────────────────────────────────────────
+@dataclass
+class Property:
+    id: str
+    name: str
+    address: str
+    city: str
+    state: str
+    zip_code: str
+    property_type: str                            # e.g. "SFR", "Multi-Family", "Commercial"
+    current_value: float
+    purchase_price: float
+    monthly_rent: float
+    occupancy_pct: float                          # 0-100
+    monthly_expenses: float
+    value_history: List[float] = field(default_factory=list)   # last N months
+    rent_history: List[float]  = field(default_factory=list)
+
+# ──────────────────────────────────────────────
+# MOCK DATA  (replace with your DB / Google Sheet fetch)
+# ──────────────────────────────────────────────
+def _random_history(base: float, n: int = SPARKLINE_MONTHS, drift: float = 0.008, vol: float = 0.02) -> List[float]:
+    """Generate a realistic random walk for demo sparklines."""
+    np.random.seed(abs(hash(str(base))) % 2**31)
+    vals = [base]
+    for _ in range(n - 1):
+        vals.append(vals[-1] * (1 + drift + np.random.normal(0, vol)))
+    return [round(v, 2) for v in vals]
+
+MOCK_PROPERTIES: List[Property] = [
+    Property("prop-001", "Oakwood Estates",   "1420 Oakwood Dr",   "Melissa",    "TX", "75454", "SFR",
+             425000, 380000, 2850, 100, 620,
+             _random_history(380000), _random_history(2600)),
+    Property("prop-002", "Cedarview Duplex",  "308 Cedar Ln",      "Anna",       "TX", "75409", "Multi-Family",
+             610000, 540000, 4200, 95, 980,
+             _random_history(540000), _random_history(3800)),
+    Property("prop-003", "Highpoint Commons", "7700 US-75 Ste B",  "McKinney",   "TX", "75071", "Commercial",
+             1250000, 1100000, 9500, 88, 2100,
+             _random_history(1100000), _random_history(8800)),
+    Property("prop-004", "Willow Creek Home", "215 Willow Creek Ct","Melissa",    "TX", "75454", "SFR",
+             395000, 365000, 2400, 100, 540,
+             _random_history(365000), _random_history(2200)),
+    Property("prop-005", "Prosper Plaza",     "1010 E First St",   "Prosper",    "TX", "75078", "Commercial",
+             890000, 820000, 7100, 92, 1650,
+             _random_history(820000), _random_history(6500)),
+    Property("prop-006", "Bluebonnet Villas", "540 Bluebonnet Way","Celina",     "TX", "75009", "Multi-Family",
+             780000, 710000, 5600, 97, 1320,
+             _random_history(710000), _random_history(5100)),
+]
+
+# ──────────────────────────────────────────────
+# SPARKLINE GENERATOR  (matplotlib → base64 PNG)
+# ──────────────────────────────────────────────
+def generate_sparkline(
+    data: List[float],
+    width: float = 3.2,
+    height: float = 0.7,
+    line_color: str = "#4F8CF7",
+    fill_color: str = "rgba(79,140,247,0.12)",
+    neg_color: str  = "#EF4444",
+    show_endpoint: bool = True,
+) -> str:
+    """
+    Return a base64-encoded PNG sparkline string ready for <img src="...">.
+    Automatically colors red when the trend is negative.
+    """
+    if not data or len(data) < 2:
+        return ""
+
+    trend_positive = data[-1] >= data[0]
+    lc = line_color if trend_positive else neg_color
+    fc = fill_color if trend_positive else "rgba(239,68,68,0.10)"
+
+    fig, ax = plt.subplots(figsize=(width, height), dpi=120)
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+
+    x = list(range(len(data)))
+    ax.plot(x, data, color=lc, linewidth=1.8, solid_capstyle="round")
+    ax.fill_between(x, data, min(data), color=fc)
+
+    if show_endpoint:
+        ax.plot(x[-1], data[-1], "o", color=lc, markersize=4, zorder=5)
+
+    ax.set_xlim(x[0], x[-1])
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    return f"data:image/png;base64,{b64}"
+
+
+# ──────────────────────────────────────────────
+# AGGREGATE METRICS
+# ──────────────────────────────────────────────
+def compute_portfolio_metrics(properties: List[Property]) -> dict:
+    total_value       = sum(p.current_value for p in properties)
+    total_purchase    = sum(p.purchase_price for p in properties)
+    total_monthly_inc = sum(p.monthly_rent for p in properties)
+    total_monthly_exp = sum(p.monthly_expenses for p in properties)
+    avg_occupancy     = np.mean([p.occupancy_pct for p in properties]) if properties else 0
+    total_appreciation = ((total_value - total_purchase) / total_purchase * 100) if total_purchase else 0
+    net_monthly       = total_monthly_inc - total_monthly_exp
+    return dict(
+        count=len(properties),
+        total_value=total_value,
+        total_monthly_income=total_monthly_inc,
+        total_monthly_expenses=total_monthly_exp,
+        net_monthly_income=net_monthly,
+        avg_occupancy=avg_occupancy,
+        total_appreciation_pct=total_appreciation,
+    )
+
+
+# ──────────────────────────────────────────────
+# CSS — enterprise-grade card styling
+# ──────────────────────────────────────────────
+DASHBOARD_CSS = """
 <style>
-/* ── Summary Bar ─────────────────────────── */
+/* ── Summary bar ────────────────────────── */
 .summary-bar {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     margin-bottom: 28px;
     flex-wrap: wrap;
 }
 .summary-tile {
-    flex: 1 1 120px;
-    background: linear-gradient(135deg, #1a1f2e 0%, #232a3d 100%);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 12px;
-    padding: 18px 14px;
-    text-align: center;
-    min-width: 120px;
+    flex: 1 1 180px;
+    background: linear-gradient(135deg, #1a1f36 0%, #252b48 100%);
+    border-radius: 14px;
+    padding: 20px 22px;
+    color: #fff;
+    min-width: 170px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+    position: relative;
+    overflow: hidden;
 }
-.summary-tile .label {
+.summary-tile::after {
+    content: "";
+    position: absolute;
+    top: -30px; right: -30px;
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+}
+.summary-label {
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1.2px;
     text-transform: uppercase;
-    color: #8892a4;
+    letter-spacing: 1.2px;
+    color: #8b92b0;
     margin-bottom: 6px;
+    font-weight: 600;
 }
-.summary-tile .value {
-    font-size: 22px;
+.summary-value {
+    font-size: 26px;
     font-weight: 700;
-    color: #f0f2f6;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
 }
+.summary-sub {
+    font-size: 12px;
+    color: #6ee7b7;
+    margin-top: 4px;
+    font-weight: 500;
+}
+.summary-sub.neg { color: #f87171; }
 
-/* ── Property Card ───────────────────────── */
+/* ── Property card ──────────────────────── */
 .prop-card {
-    max-width: 640px;
-    margin: 0 auto;
-    background: linear-gradient(145deg, #1a1f2e 0%, #212839 100%);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 16px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
     padding: 0;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+    transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+    cursor: pointer;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.prop-card:hover {
+    box-shadow: 0 8px 32px rgba(79,140,247,0.16);
+    transform: translateY(-3px);
+    border-color: #4F8CF7;
 }
 .card-header {
-    padding: 24px 28px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 18px 20px 10px 20px;
 }
-.card-title {
-    font-size: 20px;
+.card-header .prop-name {
+    font-size: 17px;
     font-weight: 700;
-    color: #f0f2f6;
+    color: #1a1f36;
+    margin: 0 0 2px 0;
+    line-height: 1.3;
+}
+.card-header .prop-address {
+    font-size: 12.5px;
+    color: #6b7280;
     margin: 0;
 }
-.utility-tags {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-}
-.util-tag {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    padding: 3px 10px;
-    border-radius: 20px;
-    background: rgba(96,165,250,0.12);
-    color: #60a5fa;
-    border: 1px solid rgba(96,165,250,0.2);
-}
-.status-badge {
+.card-badge {
     display: inline-block;
-    font-size: 10px;
+    font-size: 10.5px;
     font-weight: 700;
+    text-transform: uppercase;
     letter-spacing: 0.8px;
-    text-transform: uppercase;
-    padding: 3px 12px;
-    border-radius: 20px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-top: 8px;
 }
-.status-active {
-    background: rgba(52,211,153,0.12);
-    color: #34d399;
-    border: 1px solid rgba(52,211,153,0.25);
-}
-.status-inactive {
-    background: rgba(251,146,60,0.12);
-    color: #fb923c;
-    border: 1px solid rgba(251,146,60,0.25);
-}
+.badge-sfr          { background: #dbeafe; color: #1d4ed8; }
+.badge-multi-family { background: #ede9fe; color: #6d28d9; }
+.badge-commercial   { background: #fef3c7; color: #b45309; }
 
-/* ── KPI Strip ───────────────────────────── */
-.kpi-strip {
-    display: flex;
-    padding: 20px 28px;
-    gap: 0;
+.card-sparkline {
+    padding: 6px 20px 2px 20px;
 }
-.kpi-cell {
-    flex: 1;
-    text-align: center;
-    border-right: 1px solid rgba(255,255,255,0.06);
-    padding: 0 8px;
-}
-.kpi-cell:last-child { border-right: none; }
-.kpi-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: #8892a4;
-    margin-bottom: 4px;
-}
-.kpi-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: #f0f2f6;
-}
-.kpi-sub {
-    font-size: 11px;
-    font-weight: 600;
-    margin-top: 3px;
-}
-.kpi-up   { color: #f87171; }   /* red  — costs rising = bad   */
-.kpi-down { color: #34d399; }   /* green — costs falling = good */
-.kpi-flat { color: #8892a4; }
-
-/* ── Sparkline Section ───────────────────── */
-.sparkline-section {
-    padding: 16px 28px 20px;
-    border-top: 1px solid rgba(255,255,255,0.05);
+.card-sparkline img {
+    width: 100%;
+    height: auto;
+    display: block;
 }
 .sparkline-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
+    font-size: 10.5px;
+    color: #9ca3af;
     text-transform: uppercase;
-    color: #8892a4;
-    margin-bottom: 8px;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.card-metrics {
+    padding: 10px 20px 18px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 16px;
+    flex-grow: 1;
+}
+.metric-item {
+    display: flex;
+    flex-direction: column;
+}
+.metric-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #9ca3af;
+    font-weight: 600;
+    margin-bottom: 1px;
+}
+.metric-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a1f36;
+}
+.metric-value.green { color: #059669; }
+.metric-value.red   { color: #ef4444; }
+
+.card-footer {
+    border-top: 1px solid #f3f4f6;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.card-footer .view-link {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #4F8CF7;
+    text-decoration: none;
+    letter-spacing: 0.3px;
+}
+.card-footer .occupancy-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+.occ-high   { background: #d1fae5; color: #065f46; }
+.occ-mid    { background: #fef3c7; color: #92400e; }
+.occ-low    { background: #fee2e2; color: #991b1b; }
+
+/* ── Section headers ────────────────────── */
+.section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: #6b7280;
+    font-weight: 700;
+    margin: 32px 0 14px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+/* ── Dark-mode auto-adapt ───────────────── */
+@media (prefers-color-scheme: dark) {
+    .prop-card { background: #1e2130; border-color: #2d3250; }
+    .prop-card:hover { border-color: #4F8CF7; box-shadow: 0 8px 32px rgba(79,140,247,0.22); }
+    .card-header .prop-name { color: #e5e7eb; }
+    .card-header .prop-address { color: #9ca3af; }
+    .metric-value { color: #e5e7eb; }
+    .metric-label, .sparkline-label { color: #6b7280; }
+    .card-footer { border-color: #2d3250; }
+    .section-title { color: #9ca3af; border-color: #2d3250; }
 }
 </style>
-""", unsafe_allow_html=True)
+"""
 
 
-# ─────────────────────────────────────────────
-# LOAD DATA
-# ─────────────────────────────────────────────
-df, month_order = load_property_ledger()
-
-if df is None or df.empty:
-    st.error("No Excel file found in /data. Please add one.")
-    st.stop()
-
-if "Billing Date" in df.columns:
-    df["Billing Date"] = pd.to_datetime(df["Billing Date"], errors="coerce")
-if "Year" not in df.columns and "Billing Date" in df.columns:
-    df["Year"] = df["Billing Date"].dt.year
-if "Month_Num" not in df.columns and "Billing Date" in df.columns:
-    df["Month_Num"] = df["Billing Date"].dt.month
-
-st.title("Property Portfolio")
-
-
-# ─────────────────────────────────────────────
-# PURE SVG SPARKLINE GENERATOR
-# ─────────────────────────────────────────────
-def make_sparkline(values, width=540, height=48, stroke_width=2):
-    """Pure SVG sparkline — no external libraries.
-    Colors INVERTED for costs: green = falling (good), red = rising (bad)."""
-    vals = [float(v) for v in values if pd.notna(v)]
-    if len(vals) < 2:
-        return ""
-
-    mn, mx = min(vals), max(vals)
-    rng = mx - mn if mx != mn else 1
-    pad = 6
-    usable_h = height - 2 * pad
-    n = len(vals)
-
-    pts = []
-    for i, v in enumerate(vals):
-        x = round(i / (n - 1) * width, 2)
-        y = round(pad + usable_h - ((v - mn) / rng) * usable_h, 2)
-        pts.append((x, y))
-
-    polyline = " ".join(f"{x},{y}" for x, y in pts)
-
-    # Trend colour — compare first-third avg to last-third avg
-    third = max(1, n // 3)
-    early = sum(vals[:third]) / third
-    late  = sum(vals[-third:]) / third
-    if late > early * 1.02:
-        color = "#f87171"       # red   — costs rising
-    elif late < early * 0.98:
-        color = "#34d399"       # green — costs falling
-    else:
-        color = "#60a5fa"       # blue  — flat
-
-    gid = f"sg{abs(hash(tuple(vals))) % 99999}"
-    last_x, last_y = pts[-1]
-
-    svg = (
-        f'<svg width="100%" height="{height}" '
-        f'viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
-        f'xmlns="http://www.w3.org/2000/svg">'
-        f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.25"/>'
-        f'<stop offset="100%" stop-color="{color}" stop-opacity="0"/>'
-        f'</linearGradient></defs>'
-        f'<polygon points="0,{height} {polyline} {width},{height}" '
-        f'fill="url(#{gid})" stroke="none"/>'
-        f'<polyline points="{polyline}" fill="none" stroke="{color}" '
-        f'stroke-width="{stroke_width}" stroke-linecap="round" '
-        f'stroke-linejoin="round"/>'
-        f'<circle cx="{last_x}" cy="{last_y}" r="3" fill="{color}"/>'
-        f'</svg>'
-    )
-    return svg
-
-
-# ─────────────────────────────────────────────
-# BUILD PORTFOLIO DATA (per-property aggregation)
-# ─────────────────────────────────────────────
-def build_portfolio(data):
-    """Aggregate per-property: total cost, avg monthly, usage, YOY, sparkline data."""
-    portfolio = {}
-    for prop_name, grp in data.groupby("Property Name"):
-        total_cost = grp["$ Amount"].sum() if "$ Amount" in grp.columns else 0
-        bill_count = len(grp)
-        total_usage = grp["Usage"].sum() if "Usage" in grp.columns else 0
-
-        # Avg monthly — divide by distinct (Year, Month) combos
-        if {"Year", "Month_Num"}.issubset(grp.columns):
-            unique_months = grp.groupby(["Year", "Month_Num"]).ngroups
-            avg_monthly = total_cost / max(unique_months, 1)
-        else:
-            avg_monthly = total_cost / max(bill_count, 1)
-
-        # YOY cost change
-        yoy_change = None
-        if "Year" in grp.columns and grp["Year"].nunique() >= 2:
-            yrs = sorted(grp["Year"].dropna().unique())
-            cy, py = yrs[-1], yrs[-2]
-            cy_cost = grp.loc[grp["Year"] == cy, "$ Amount"].sum() if "$ Amount" in grp.columns else 0
-            py_cost = grp.loc[grp["Year"] == py, "$ Amount"].sum() if "$ Amount" in grp.columns else 0
-            if py_cost and py_cost != 0:
-                yoy_change = ((cy_cost - py_cost) / py_cost) * 100
-
-        # Cost history for sparkline (monthly buckets, chronological)
-        cost_history = []
-        if {"Year", "Month_Num", "$ Amount"}.issubset(grp.columns):
-            hist = (
-                grp.groupby(["Year", "Month_Num"], as_index=False)["$ Amount"]
-                .sum()
-                .sort_values(["Year", "Month_Num"])
-            )
-            cost_history = hist["$ Amount"].tolist()
-
-        # Utility list
-        utilities = sorted(grp["Utility"].unique().tolist()) if "Utility" in grp.columns else []
-
-        # Status — active vs stale (no bill in 120+ days)
-        status = "active"
-        if "Billing Date" in grp.columns:
-            last_bill = grp["Billing Date"].max()
-            if pd.notna(last_bill) and (pd.Timestamp.now() - last_bill).days > 120:
-                status = "inactive"
-
-        portfolio[prop_name] = {
-            "total_cost":   total_cost,
-            "avg_monthly":  avg_monthly,
-            "total_usage":  total_usage,
-            "bill_count":   bill_count,
-            "yoy_change":   yoy_change,
-            "cost_history": cost_history,
-            "utilities":    utilities,
-            "status":       status,
-        }
-    return portfolio
-
-
-# ─────────────────────────────────────────────
-# FORMATTING HELPERS
-# ─────────────────────────────────────────────
-def fmt_currency(val):
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return "N/A"
-    if abs(val) >= 1_000_000:
-        return f"${val / 1_000_000:,.1f}M"
-    if abs(val) >= 1_000:
-        return f"${val / 1_000:,.1f}K"
+# ──────────────────────────────────────────────
+# HELPER FORMATTERS
+# ──────────────────────────────────────────────
+def fmt_currency(val: float, compact: bool = False) -> str:
+    if compact and abs(val) >= 1_000_000:
+        return f"${val/1_000_000:,.1f}M"
+    if compact and abs(val) >= 1_000:
+        return f"${val/1_000:,.0f}K"
     return f"${val:,.0f}"
 
-def fmt_number(val):
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return "N/A"
-    if abs(val) >= 1_000_000:
-        return f"{val / 1_000_000:,.1f}M"
-    if abs(val) >= 1_000:
-        return f"{val / 1_000:,.1f}K"
-    return f"{val:,.0f}"
+def fmt_pct(val: float) -> str:
+    return f"{val:.1f}%"
+
+def badge_class(ptype: str) -> str:
+    key = ptype.lower().replace(" ", "-").replace("_", "-")
+    return f"badge-{key}" if key in ("sfr", "multi-family", "commercial") else "badge-sfr"
+
+def occ_class(occ: float) -> str:
+    if occ >= 95: return "occ-high"
+    if occ >= 80: return "occ-mid"
+    return "occ-low"
 
 
-# ─────────────────────────────────────────────
-# FILTERS — Utility Type  |  Property
-# ─────────────────────────────────────────────
-col_f1, col_f2 = st.columns(2)
-
-all_utilities = sorted(df["Utility"].unique().tolist()) if "Utility" in df.columns else []
-utility_options = ["Select All"] + all_utilities
-selected_utility = col_f1.selectbox("Utility Type", utility_options, index=0)
-
-# Apply utility filter BEFORE anything else
-if selected_utility != "Select All":
-    filtered_df = df[df["Utility"] == selected_utility].copy()
-else:
-    filtered_df = df.copy()
-
-# Property dropdown — repopulates based on utility filter
-avail_props = sorted(filtered_df["Property Name"].unique().tolist()) if "Property Name" in filtered_df.columns else []
-if not avail_props:
-    st.warning("No properties found for the selected utility filter.")
-    st.stop()
-
-selected_property = col_f2.selectbox("Select Property", avail_props, index=0)
-
-
-# ─────────────────────────────────────────────
-# SUMMARY BAR — aggregate across ALL properties
-#   (scoped to the selected utility filter)
-# ─────────────────────────────────────────────
-total_spend_all  = filtered_df["$ Amount"].sum() if "$ Amount" in filtered_df.columns else 0
-total_usage_all  = filtered_df["Usage"].sum()    if "Usage"    in filtered_df.columns else 0
-property_count   = filtered_df["Property Name"].nunique() if "Property Name" in filtered_df.columns else 0
-bill_count_all   = len(filtered_df)
-avg_cpor = filtered_df["CPOR"].mean() if "CPOR" in filtered_df.columns and not filtered_df["CPOR"].isna().all() else None
-avg_cpar = filtered_df["CPAR"].mean() if "CPAR" in filtered_df.columns and not filtered_df["CPAR"].isna().all() else None
-
-summary_html = f"""
-<div class="summary-bar">
-    <div class="summary-tile">
-        <div class="label">Properties</div>
-        <div class="value">{property_count}</div>
-    </div>
-    <div class="summary-tile">
-        <div class="label">Total Spend</div>
-        <div class="value">{fmt_currency(total_spend_all)}</div>
-    </div>
-    <div class="summary-tile">
-        <div class="label">Total Usage</div>
-        <div class="value">{fmt_number(total_usage_all)}</div>
-    </div>
-    <div class="summary-tile">
-        <div class="label">Bills</div>
-        <div class="value">{bill_count_all:,}</div>
-    </div>
-    <div class="summary-tile">
-        <div class="label">Avg CPOR</div>
-        <div class="value">{f"${avg_cpor:,.2f}" if avg_cpor is not None else "N/A"}</div>
-    </div>
-    <div class="summary-tile">
-        <div class="label">Avg CPAR</div>
-        <div class="value">{f"${avg_cpar:,.2f}" if avg_cpar is not None else "N/A"}</div>
-    </div>
-</div>
-"""
-st.markdown(summary_html, unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# RENDER SELECTED PROPERTY CARD
-# ─────────────────────────────────────────────
-portfolio = build_portfolio(filtered_df)
-
-if selected_property not in portfolio:
-    st.warning("No data available for the selected property.")
-    st.stop()
-
-p = portfolio[selected_property]
-
-# Utility tags
-tags_html = "".join(f'<span class="util-tag">{u}</span>' for u in p["utilities"])
-
-# Status badge
-status_cls   = "status-active" if p["status"] == "active" else "status-inactive"
-status_label = "Active" if p["status"] == "active" else "Stale"
-
-# YOY badge (inverted: red = costs rising, green = costs falling)
-if p["yoy_change"] is not None:
-    if p["yoy_change"] > 2:
-        yoy_cls, yoy_arrow = "kpi-up", "▲"
-    elif p["yoy_change"] < -2:
-        yoy_cls, yoy_arrow = "kpi-down", "▼"
-    else:
-        yoy_cls, yoy_arrow = "kpi-flat", "●"
-    yoy_html = f'<div class="kpi-sub {yoy_cls}">{yoy_arrow} {abs(p["yoy_change"]):.1f}% YOY</div>'
-else:
-    yoy_html = '<div class="kpi-sub kpi-flat">— No YOY</div>'
-
-# Sparkline
-sparkline_svg = make_sparkline(p["cost_history"])
-sparkline_block = sparkline_svg if sparkline_svg else (
-    '<div style="color:#8892a4;font-size:12px;">Not enough data for sparkline</div>'
-)
-
-card_html = f"""
-<div class="prop-card">
-    <!-- Header -->
-    <div class="card-header">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div class="card-title">{selected_property}</div>
-            <span class="status-badge {status_cls}">{status_label}</span>
+# ──────────────────────────────────────────────
+# RENDER FUNCTIONS
+# ──────────────────────────────────────────────
+def render_summary_bar(m: dict) -> None:
+    """Top-of-page aggregate KPI tiles."""
+    appr_cls = "" if m["total_appreciation_pct"] >= 0 else "neg"
+    net_cls  = "" if m["net_monthly_income"] >= 0 else "neg"
+    html = f"""
+    <div class="summary-bar">
+        <div class="summary-tile">
+            <div class="summary-label">Total Portfolio Value</div>
+            <div class="summary-value">{fmt_currency(m["total_value"], compact=True)}</div>
+            <div class="summary-sub {appr_cls}">{"▲" if m["total_appreciation_pct"]>=0 else "▼"} {fmt_pct(abs(m["total_appreciation_pct"]))} since purchase</div>
         </div>
-        <div class="utility-tags">{tags_html}</div>
-    </div>
-
-    <!-- KPI Strip -->
-    <div class="kpi-strip">
-        <div class="kpi-cell">
-            <div class="kpi-label">Total Cost</div>
-            <div class="kpi-value">{fmt_currency(p["total_cost"])}</div>
-            {yoy_html}
+        <div class="summary-tile">
+            <div class="summary-label">Monthly Gross Income</div>
+            <div class="summary-value">{fmt_currency(m["total_monthly_income"], compact=True)}</div>
+            <div class="summary-sub">{m["count"]} properties</div>
         </div>
-        <div class="kpi-cell">
-            <div class="kpi-label">Avg Monthly</div>
-            <div class="kpi-value">{fmt_currency(p["avg_monthly"])}</div>
+        <div class="summary-tile">
+            <div class="summary-label">Net Monthly Cash Flow</div>
+            <div class="summary-value">{fmt_currency(m["net_monthly_income"])}</div>
+            <div class="summary-sub {net_cls}">After ${m["total_monthly_expenses"]:,.0f} expenses</div>
         </div>
-        <div class="kpi-cell">
-            <div class="kpi-label">Total Usage</div>
-            <div class="kpi-value">{fmt_number(p["total_usage"])}</div>
-        </div>
-        <div class="kpi-cell">
-            <div class="kpi-label">Bills</div>
-            <div class="kpi-value">{p["bill_count"]:,}</div>
+        <div class="summary-tile">
+            <div class="summary-label">Avg Occupancy</div>
+            <div class="summary-value">{fmt_pct(m["avg_occupancy"])}</div>
+            <div class="summary-sub">Across all units</div>
         </div>
     </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
-    <!-- Sparkline -->
-    <div class="sparkline-section">
-        <div class="sparkline-label">Cost Trend</div>
-        {sparkline_block}
+
+def render_property_card(prop: Property) -> None:
+    """Single property card with sparkline and metrics."""
+    sparkline_src = generate_sparkline(prop.value_history)
+    appreciation  = ((prop.current_value - prop.purchase_price) / prop.purchase_price * 100) if prop.purchase_price else 0
+    appr_cls      = "green" if appreciation >= 0 else "red"
+    noi           = prop.monthly_rent - prop.monthly_expenses
+    noi_cls       = "green" if noi >= 0 else "red"
+
+    html = f"""
+    <div class="prop-card">
+        <div class="card-header">
+            <p class="prop-name">{prop.name}</p>
+            <p class="prop-address">{prop.address}, {prop.city}, {prop.state} {prop.zip_code}</p>
+            <span class="card-badge {badge_class(prop.property_type)}">{prop.property_type}</span>
+        </div>
+        <div class="card-sparkline">
+            <div class="sparkline-label">12-mo value trend</div>
+            <img src="{sparkline_src}" alt="sparkline" />
+        </div>
+        <div class="card-metrics">
+            <div class="metric-item">
+                <span class="metric-label">Current Value</span>
+                <span class="metric-value">{fmt_currency(prop.current_value, compact=True)}</span>
+            </div>
+            <div class="metric-item">
+                <span class="metric-label">Appreciation</span>
+                <span class="metric-value {appr_cls}">{"+" if appreciation>=0 else ""}{fmt_pct(appreciation)}</span>
+            </div>
+            <div class="metric-item">
+                <span class="metric-label">Monthly Rent</span>
+                <span class="metric-value">{fmt_currency(prop.monthly_rent)}</span>
+            </div>
+            <div class="metric-item">
+                <span class="metric-label">Net Income</span>
+                <span class="metric-value {noi_cls}">{fmt_currency(noi)}</span>
+            </div>
+        </div>
+        <div class="card-footer">
+            <span class="view-link">View Details →</span>
+            <span class="occupancy-pill {occ_class(prop.occupancy_pct)}">{fmt_pct(prop.occupancy_pct)} Occ</span>
+        </div>
     </div>
-</div>
-"""
-st.markdown(card_html, unsafe_allow_html=True)
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# NAVIGATION → Property Detail
-# ─────────────────────────────────────────────
-st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
-_, btn_col, _ = st.columns([1, 2, 1])
-with btn_col:
-    if st.button("View Full Details →", use_container_width=True, type="primary"):
-        st.session_state["selected_property"] = selected_property
-        st.switch_page("pages/3_Property_Detail.py")
+# ──────────────────────────────────────────────
+# NAVIGATION HANDLER
+# ──────────────────────────────────────────────
+def navigate_to_detail(prop_id: str) -> None:
+    """Store selected property and jump to the detail page."""
+    st.session_state["selected_property_id"] = prop_id
+    try:
+        st.switch_page(TARGET_DETAIL_PAGE)
+    except Exception:
+        # Fallback: set a query-param flag so the detail page can read it
+        st.session_state["nav_target"] = "property_detail"
+        st.rerun()
+
+
+# ──────────────────────────────────────────────
+# PAGE ENTRY POINT
+# ──────────────────────────────────────────────
+def main() -> None:
+    st.set_page_config(
+        page_title="Portfolio Dashboard",
+        page_icon="🏢",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+
+    # Inject CSS once
+    st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
+
+    # ── Page header ──
+    st.markdown(
+        "<h1 style='margin-bottom:4px;font-size:28px;font-weight:800;letter-spacing:-0.5px;'>"
+        "Portfolio Dashboard</h1>"
+        "<p style='color:#6b7280;font-size:14px;margin-top:0;'>Real-time overview of your property portfolio</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Load data (swap this for your real data loader) ──
+    properties = MOCK_PROPERTIES
+
+    # ── Summary bar ──
+    metrics = compute_portfolio_metrics(properties)
+    render_summary_bar(metrics)
+
+    # ── Section header ──
+    st.markdown('<div class="section-title">Properties</div>', unsafe_allow_html=True)
+
+    # ── Card grid ──
+    rows = [properties[i:i + CARD_COLUMNS] for i in range(0, len(properties), CARD_COLUMNS)]
+    for row in rows:
+        cols = st.columns(CARD_COLUMNS, gap="medium")
+        for idx, prop in enumerate(row):
+            with cols[idx]:
+                render_property_card(prop)
+                # Navigation button — sits right below the card
+                if st.button(
+                    f"Open {prop.name}",
+                    key=f"nav_{prop.id}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    navigate_to_detail(prop.id)
+
+    # ── Footer spacer ──
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    main()
