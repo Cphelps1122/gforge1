@@ -1,24 +1,3 @@
-"""
-Portfolio Dashboard — Premium Property Overview Page
-=====================================================
-Drop-in Streamlit page. Renders:
-  • Aggregate summary bar (total value, income, occupancy, appreciation)
-  • Property cards in a responsive grid with embedded sparkline charts
-  • Click-through navigation to a Property Detail page
-
-Dependencies (pip install if missing):
-  streamlit, matplotlib, numpy, pandas
-
-Usage:
-  1. Save this file as  pages/1_Portfolio_Dashboard.py  (or any name you like).
-  2. Run:  streamlit run pages/1_Portfolio_Dashboard.py
-  3. To wire real data, replace the MOCK_PROPERTIES list with your own data source.
-
-Navigation contract:
-  Clicking a card sets  st.session_state["selected_property_id"]  and triggers
-  st.switch_page() to your detail page.  Adjust TARGET_DETAIL_PAGE below.
-"""
-
 import streamlit as st
 import matplotlib
 matplotlib.use("Agg")                       # headless backend — no GUI needed
