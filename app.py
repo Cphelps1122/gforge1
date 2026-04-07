@@ -4,7 +4,6 @@ import pandas as pd
 
 from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
-from components.header import render_header   # ← NEW IMPORT
 
 # -------------------------------
 # GLOBAL HEADER (applies to all pages)
@@ -35,7 +34,7 @@ GLOBAL_HEADER = """
 st.markdown(GLOBAL_HEADER, unsafe_allow_html=True)
 
 # -------------------------------
-# Your existing reusable header function (kept for compatibility)
+# OPTIONAL: Reusable header function (kept for compatibility)
 # -------------------------------
 def render_header(title_text="CGS EnergyGuard"):
     st.markdown(
@@ -56,7 +55,6 @@ def render_header(title_text="CGS EnergyGuard"):
         """,
         unsafe_allow_html=True
     )
-
 
 # -----------------------------
 # LOAD DATA
@@ -131,7 +129,6 @@ if "Year" in f.columns:
         else None
     )
 
-    # Efficiency (CPOR / CPAR) if available
     cy_cpor = f[f["Year"] == current_year]["CPOR"].mean() if "CPOR" in f.columns else None
     py_cpor = f[f["Year"] == prev_year]["CPOR"].mean() if "CPOR" in f.columns else None
     yoy_cpor = (
@@ -152,28 +149,13 @@ else:
 
 colA, colB, colC, colD = st.columns(4)
 colA.metric("Years", metrics["years"])
-colB.metric(
-    "Total Spend",
-    f"${metrics['total_spend']:,.0f}" if metrics["total_spend"] is not None else "N/A",
-)
-colC.metric(
-    "Total Usage",
-    f"{metrics['total_usage']:,.0f}" if metrics["total_usage"] is not None else "N/A",
-)
-colD.metric(
-    "YOY Spend Change",
-    f"{yoy_spend:.1f}%" if yoy_spend is not None else "N/A",
-)
+colB.metric("Total Spend", f"${metrics['total_spend']:,.0f}" if metrics["total_spend"] is not None else "N/A")
+colC.metric("Total Usage", f"{metrics['total_usage']:,.0f}" if metrics["total_usage"] is not None else "N/A")
+colD.metric("YOY Spend Change", f"{yoy_spend:.1f}%" if yoy_spend is not None else "N/A")
 
 colE, colF = st.columns(2)
-colE.metric(
-    "YOY CPOR Change",
-    f"{yoy_cpor:.1f}%" if yoy_cpor is not None else "N/A",
-)
-colF.metric(
-    "YOY CPAR Change",
-    f"{yoy_cpar:.1f}%" if yoy_cpar is not None else "N/A",
-)
+colE.metric("YOY CPOR Change", f"{yoy_cpor:.1f}%" if yoy_cpor is not None else "N/A")
+colF.metric("YOY CPAR Change", f"{yoy_cpar:.1f}%" if yoy_cpar is not None else "N/A")
 
 # -----------------------------
 # PROPERTY RANKING (EFFICIENCY)
@@ -187,7 +169,6 @@ if "CPOR" in f.columns:
         .dropna(subset=["CPOR"])
     )
     if "Year" in f.columns:
-        # Optional: restrict to current_year for ranking
         rank_df = (
             f[f["Year"] == current_year]
             .groupby("Property Name", as_index=False)["CPOR"]
@@ -283,4 +264,3 @@ if {"Utility", "Year", "$ Amount", "Usage"}.issubset(f.columns):
         st.altair_chart(chart_usage, use_container_width=True)
 else:
     st.info("Utility-level breakdown not fully available for this dataset.")
-
