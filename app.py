@@ -6,10 +6,57 @@ from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
 from components.header import render_header   # ← NEW IMPORT
 
-# -----------------------------
-# HEADER (centered full-width logo)
-# -----------------------------
-render_header()                               # ← NEW HEADER
+# -------------------------------
+# GLOBAL HEADER (applies to all pages)
+# -------------------------------
+st.set_page_config(layout="wide")
+
+GLOBAL_HEADER = """
+<style>
+.global-header {
+    width: 100%;
+    text-align: center;
+    padding: 10px 0 25px 0;
+}
+.global-header h1 {
+    font-size: 34px;
+    font-weight: 700;
+    color: white;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+</style>
+
+<div class="global-header">
+    <h1>CGS EnergyGuard</h1>
+</div>
+"""
+
+st.markdown(GLOBAL_HEADER, unsafe_allow_html=True)
+
+# -------------------------------
+# Your existing reusable header function (kept for compatibility)
+# -------------------------------
+def render_header(title_text="CGS EnergyGuard"):
+    st.markdown(
+        f"""
+        <div style="
+            width: 100%;
+            text-align: center;
+            padding: 10px 0 25px 0;
+        ">
+            <h1 style="
+                font-size: 34px;
+                font-weight: 700;
+                color: white;
+                margin: 0;
+                letter-spacing: 0.5px;
+            ">{title_text}</h1>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # -----------------------------
 # LOAD DATA
