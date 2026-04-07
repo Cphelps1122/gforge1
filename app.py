@@ -15,12 +15,14 @@ GLOBAL_HEADER = """
 .global-header {
     width: 100%;
     text-align: center;
-    padding: 10px 0 25px 0;
+    padding: 12px 0 18px 0;
+    background-color: #0A0A0A;  /* Dark bar so text is always visible */
+    border-bottom: 1px solid #333;
 }
 .global-header h1 {
     font-size: 34px;
     font-weight: 700;
-    color: white;
+    color: #ffffff;  /* White text */
     margin: 0;
     letter-spacing: 0.5px;
 }
