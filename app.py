@@ -5,26 +5,36 @@ import pandas as pd
 from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
 
-# -------------------------------
-# GLOBAL HEADER (applies to all pages)
-# -------------------------------
+# ---------------------------------------------------------
+# GLOBAL HEADER (Guaranteed visible on all themes)
+# ---------------------------------------------------------
 st.set_page_config(layout="wide")
 
 GLOBAL_HEADER = """
 <style>
+/* Force header container to always show */
 .global-header {
     width: 100%;
     text-align: center;
-    padding: 12px 0 18px 0;
-    background-color: #0A0A0A;  /* Dark bar so text is always visible */
+    padding: 16px 0 20px 0;
+    background-color: #111111;  /* Dark bar */
     border-bottom: 1px solid #333;
+    position: relative;
+    z-index: 9999;  /* Always on top */
 }
+
+/* Force text to be visible on any theme */
 .global-header h1 {
-    font-size: 34px;
+    font-size: 32px;
     font-weight: 700;
-    color: #ffffff;  /* White text */
+    color: #F5F5F5;  /* Off-white for contrast */
     margin: 0;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
+}
+
+/* Remove Streamlit's default top padding so header touches top */
+.block-container {
+    padding-top: 0 !important;
 }
 </style>
 
@@ -35,9 +45,9 @@ GLOBAL_HEADER = """
 
 st.markdown(GLOBAL_HEADER, unsafe_allow_html=True)
 
-# -------------------------------
+# ---------------------------------------------------------
 # OPTIONAL: Reusable header function (kept for compatibility)
-# -------------------------------
+# ---------------------------------------------------------
 def render_header(title_text="CGS EnergyGuard"):
     st.markdown(
         f"""
@@ -58,9 +68,9 @@ def render_header(title_text="CGS EnergyGuard"):
         unsafe_allow_html=True
     )
 
-# -----------------------------
+# ---------------------------------------------------------
 # LOAD DATA
-# -----------------------------
+# ---------------------------------------------------------
 df, month_order = load_property_ledger()
 
 if df is None or df.empty:
@@ -74,15 +84,15 @@ if "Billing Date" in df.columns:
 else:
     last_updated = "N/A"
 
-# -----------------------------
+# ---------------------------------------------------------
 # HEADER
-# -----------------------------
+# ---------------------------------------------------------
 st.title("Portfolio Energy & Utility Dashboard")
 st.markdown(f"**Last Updated:** {last_updated}")
 
-# -----------------------------
+# ---------------------------------------------------------
 # FILTERS
-# -----------------------------
+# ---------------------------------------------------------
 col_f1, col_f2, col_f3 = st.columns(3)
 
 properties = ["All"] + sorted(df["Property Name"].unique())
@@ -105,9 +115,9 @@ if f.empty:
     st.warning("No data for selected filters.")
     st.stop()
 
-# -----------------------------
+# ---------------------------------------------------------
 # EXECUTIVE KPIs
-# -----------------------------
+# ---------------------------------------------------------
 metrics = portfolio_metrics(f)
 
 # YOY calculations (guarded)
@@ -159,9 +169,9 @@ colE, colF = st.columns(2)
 colE.metric("YOY CPOR Change", f"{yoy_cpor:.1f}%" if yoy_cpor is not None else "N/A")
 colF.metric("YOY CPAR Change", f"{yoy_cpar:.1f}%" if yoy_cpar is not None else "N/A")
 
-# -----------------------------
+# ---------------------------------------------------------
 # PROPERTY RANKING (EFFICIENCY)
-# -----------------------------
+# ---------------------------------------------------------
 st.subheader("Property Efficiency Ranking (CPOR)")
 
 if "CPOR" in f.columns:
@@ -195,9 +205,9 @@ if "CPOR" in f.columns:
 else:
     st.info("CPOR metric not available in this dataset.")
 
-# -----------------------------
+# ---------------------------------------------------------
 # HERO EFFICIENCY TREND (CPOR YOY)
-# -----------------------------
+# ---------------------------------------------------------
 st.subheader("Year-over-Year Efficiency Trend (CPOR)")
 
 if {"CPOR", "Month_Num", "Year"}.issubset(f.columns):
@@ -222,9 +232,9 @@ if {"CPOR", "Month_Num", "Year"}.issubset(f.columns):
 else:
     st.info("Not enough data to build CPOR trend.")
 
-# -----------------------------
+# ---------------------------------------------------------
 # UTILITY SMALL MULTIPLES
-# -----------------------------
+# ---------------------------------------------------------
 st.subheader("Utility Spend & Usage by Year")
 
 if {"Utility", "Year", "$ Amount", "Usage"}.issubset(f.columns):
