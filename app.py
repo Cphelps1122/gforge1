@@ -6,67 +6,14 @@ from utils.load_data import load_property_ledger
 from utils.metrics import portfolio_metrics
 
 # ---------------------------------------------------------
-# GLOBAL HEADER (Guaranteed visible on all themes)
+# SIMPLE, ALWAYS-VISIBLE HEADER
 # ---------------------------------------------------------
 st.set_page_config(layout="wide")
 
-GLOBAL_HEADER = """
-<style>
-/* Force header container to always show */
-.global-header {
-    width: 100%;
-    text-align: center;
-    padding: 16px 0 20px 0;
-    background-color: #111111;  /* Dark bar */
-    border-bottom: 1px solid #333;
-    position: relative;
-    z-index: 9999;  /* Always on top */
-}
-
-/* Force text to be visible on any theme */
-.global-header h1 {
-    font-size: 32px;
-    font-weight: 700;
-    color: #F5F5F5;  /* Off-white for contrast */
-    margin: 0;
-    letter-spacing: 0.6px;
-}
-
-/* Remove Streamlit's default top padding so header touches top */
-.block-container {
-    padding-top: 0 !important;
-}
-</style>
-
-<div class="global-header">
-    <h1>CGS EnergyGuard</h1>
-</div>
-"""
-
-st.markdown(GLOBAL_HEADER, unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# OPTIONAL: Reusable header function (kept for compatibility)
-# ---------------------------------------------------------
-def render_header(title_text="CGS EnergyGuard"):
-    st.markdown(
-        f"""
-        <div style="
-            width: 100%;
-            text-align: center;
-            padding: 10px 0 25px 0;
-        ">
-            <h1 style="
-                font-size: 34px;
-                font-weight: 700;
-                color: white;
-                margin: 0;
-                letter-spacing: 0.5px;
-            ">{title_text}</h1>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+st.markdown(
+    "<h1 style='text-align:center; font-size:32px; font-weight:700;'>CGS EnergyGuard</h1>",
+    unsafe_allow_html=True
+)
 
 # ---------------------------------------------------------
 # LOAD DATA
@@ -85,7 +32,7 @@ else:
     last_updated = "N/A"
 
 # ---------------------------------------------------------
-# HEADER
+# PAGE TITLE
 # ---------------------------------------------------------
 st.title("Portfolio Energy & Utility Dashboard")
 st.markdown(f"**Last Updated:** {last_updated}")
@@ -120,7 +67,6 @@ if f.empty:
 # ---------------------------------------------------------
 metrics = portfolio_metrics(f)
 
-# YOY calculations (guarded)
 if "Year" in f.columns:
     current_year = max(selected_years) if selected_years else f["Year"].max()
     prev_year = current_year - 1
